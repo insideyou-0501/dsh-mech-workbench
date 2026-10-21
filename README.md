@@ -13,6 +13,20 @@
 
 ## 装
 
+**先获取源码**（本包就是一个普通 git 仓库，克隆到任意位置即可）：
+
+```powershell
+git clone https://github.com/insideyou-0501/dsh-mech-workbench.git
+```
+
+若 HTTPS 被拦（报 `SEC_E_NO_CREDENTIALS` 或一直超时），改用 SSH：
+
+```powershell
+git clone git@github.com:insideyou-0501/dsh-mech-workbench.git
+```
+
+克隆出来的目录，就是下面第 2 步要指向的「本包目录」。
+
 这是一个 **Host-only bundle**（无 npm 依赖、无构建步骤），按 DSH 官方规范用 `plugin_manager` 安装：
 
 1. 在 Web 里新开一个**创造模式**任务（设置 → Agent 预设 → 创造入口，即 `cordis` 预设）；
