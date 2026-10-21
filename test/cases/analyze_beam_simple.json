@@ -1,0 +1,16 @@
+{
+  "kind": "beam",
+  "length": 4,
+  "units": { "length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa" },
+  "supports": [
+    { "x": 0, "type": "pin" },
+    { "x": 4, "type": "roller" }
+  ],
+  "loads": [{ "type": "point_force", "x": 2, "value": -10, "dir": "transverse" }],
+  "section": { "shape": "rect", "params": { "b": 0.1, "h": 0.2 } },
+  "expect": {
+    "reactions": { "R0y": 5, "R4y": 5 },
+    "Q": { "x=1": 5, "x=3": -5 },
+    "M": { "x=2": 10 }
+  }
+}

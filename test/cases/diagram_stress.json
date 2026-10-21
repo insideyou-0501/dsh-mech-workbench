@@ -1,0 +1,23 @@
+{
+  "kind": "stress",
+  "out": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\out\\stress_linear.png",
+  "title": "矩形截面弯曲正应力分布（h = 200 mm，M = 10 kN·m，Iy = 6.667e-5 m⁴）",
+  "unit": "MPa",
+  "type": "linear",
+  "neutral_axis": 0.0,
+  "dist": [
+    { "y": 0.1, "sigma": -150.0 },
+    { "y": 0.05, "sigma": -75.0 },
+    { "y": 0.0, "sigma": 0.0 },
+    { "y": -0.05, "sigma": 75.0 },
+    { "y": -0.1, "sigma": 150.0 }
+  ],
+  "marks": [
+    { "x": 150.0, "value": -0.1, "text": "下边缘 σmax = 150 MPa（拉）" }
+  ],
+  "footnotes": [
+    "σ = M·y / Iy，中性轴处 σ = 0",
+    "上边缘受压 150 MPa，下边缘受拉 150 MPa"
+  ],
+  "stamp": "mech-workbench"
+}

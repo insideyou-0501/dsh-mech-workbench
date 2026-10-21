@@ -1,0 +1,8 @@
+﻿{
+    "images":  [
+                   "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\compare_stacked_mpl.png"
+               ],
+    "provider":  "deepseek",
+    "max_side":  1600,
+    "prompt":  "只输出 JSON：{\"layout\":\"vertical 或 horizontal\",\"formula_list_readable\":true/false,\"formula_list_seen\":[\"你最底部的公式清单那一行读到的内容\"],\"chinese_ok\":true/false,\"problems\":[\"具体问题\"]}。只写你真正看到的。"
+}

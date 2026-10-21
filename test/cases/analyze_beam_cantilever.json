@@ -1,0 +1,13 @@
+{
+  "kind": "beam",
+  "length": 3,
+  "units": { "length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa" },
+  "supports": [{ "x": 0, "type": "fixed" }],
+  "loads": [{ "type": "point_force", "x": 3, "value": -8, "dir": "transverse" }],
+  "section": { "shape": "rect", "params": { "b": 0.1, "h": 0.2 } },
+  "expect": {
+    "reactions": { "R0y": 8, "M0": -24 },
+    "Q": { "x=1.5": -8 },
+    "M": { "x=0": -24, "x=3": 0 }
+  }
+}

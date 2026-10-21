@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Engineering Problem Workbench",
+    "description": "A general workbench for engineering problems of any subject: image reading with read-back verification (mechanics, structures, circuits, maths, physics, charts), a general solve kernel (exact symbolic and numeric answers, each with an independent check), a general visualization engine (one render engine plus data-driven subject presets, not mechanics-only), and problem cards."
+  }
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Engineering mechanics workbench">
+  <rect width="128" height="128" rx="22" fill="#12263a"/>
+  <!-- 基准零线 -->
+  <line x1="16" y1="70" x2="112" y2="70" stroke="#5b7c99" stroke-width="3"/>
+  <!-- 轴力图：拉为正（上）、压为负（下）的阶梯 -->
+  <path d="M16 70 L16 34 L58 34 L58 34 L58 96 L92 96 L92 70 L112 70"
+        fill="none" stroke="#4fc3f7" stroke-width="6" stroke-linejoin="miter"/>
+  <!-- 正负填充 -->
+  <path d="M16 34 L58 34 L58 70 L16 70 Z" fill="#4fc3f7" opacity="0.28"/>
+  <path d="M58 96 L92 96 L92 70 L58 70 Z" fill="#ff8a65" opacity="0.30"/>
+  <!-- 极值点 -->
+  <circle cx="16" cy="34" r="5" fill="#4fc3f7"/>
+  <circle cx="92" cy="96" r="5" fill="#ff8a65"/>
+  <!-- 支座符号 -->
+  <path d="M104 108 L112 108 L108 100 Z" fill="#e0e6ed"/>
+  <line x1="96" y1="108" x2="120" y2="108" stroke="#e0e6ed" stroke-width="4"/>
+</svg>

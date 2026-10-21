@@ -1,0 +1,19 @@
+{
+  "kind": "axial",
+  "out": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\out\\axial.png",
+  "title": "阶梯杆轴力图",
+  "unit": "kN",
+  "x_label": "x (m)",
+  "segments": [
+    { "x0": 0.0, "x1": 1.2, "value": 20.0, "label": "AB 段" },
+    { "x0": 1.2, "x1": 2.4, "value": -10.0, "label": "BC 段" }
+  ],
+  "marks": [
+    { "x": 1.2, "value": 20.0, "text": "Nmax = 20 kN" }
+  ],
+  "footnotes": [
+    "左端受 20 kN 拉力，x=1.2 m 处受 30 kN 压力，x=2.4 m 处受 10 kN 拉力",
+    "AB 段：N=+20 kN（拉）；BC 段：N=-10 kN（压）"
+  ],
+  "stamp": "mech-workbench"
+}

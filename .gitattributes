@@ -1,0 +1,19 @@
+# 换行符策略：源码统一按 LF 存储，检出时不做任何 CRLF 转换。
+# 目的：避免 git 改写 .pylibs 里 sympy/mpmath 的文件内容，
+#       导致 .dist-info/RECORD 中的 sha256 校验失配。
+* text=auto eol=lf
+
+# 随包 Python 依赖：声明为非文本，原样存取字节，绝不转换换行
+.pylibs/** -text
+
+# 二进制资源
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.pyc binary
+*.woff binary
+*.woff2 binary

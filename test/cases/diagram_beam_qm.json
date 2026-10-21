@@ -1,0 +1,41 @@
+{
+  "out": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\out\\beam_qm.png",
+  "title": "简支梁剪力图与弯矩图（跨中 P = 10 kN，L = 4 m）",
+  "x_label": "x (m)",
+  "xlim": [0, 4],
+  "panels": [
+    {
+      "kind": "shear",
+      "title": "剪力图 Q",
+      "unit": "kN",
+      "segments": [
+        { "x0": 0.0, "x1": 2.0, "value": 5.0 },
+        { "x0": 2.0, "x1": 4.0, "value": -5.0 }
+      ]
+    },
+    {
+      "kind": "moment",
+      "title": "弯矩图 M（下侧受拉为正）",
+      "unit": "kN·m",
+      "points": [
+        { "x": 0.0, "value": 0.0 },
+        { "x": 0.5, "value": 2.5 },
+        { "x": 1.0, "value": 5.0 },
+        { "x": 1.5, "value": 7.5 },
+        { "x": 2.0, "value": 10.0 },
+        { "x": 2.5, "value": 7.5 },
+        { "x": 3.0, "value": 5.0 },
+        { "x": 3.5, "value": 2.5 },
+        { "x": 4.0, "value": 0.0 }
+      ],
+      "marks": [
+        { "x": 2.0, "value": 10.0, "text": "Mmax = 10 kN·m" }
+      ]
+    }
+  ],
+  "footnotes": [
+    "反力 RA = RB = 5 kN；Mmax = PL/4 = 10 kN·m 出现在跨中",
+    "校核：x=0、x=4 处 M=0（铰支座），dM/dx=Q 成立"
+  ],
+  "stamp": "mech-workbench"
+}

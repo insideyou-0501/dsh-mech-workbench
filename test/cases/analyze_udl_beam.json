@@ -1,0 +1,16 @@
+{
+  "kind": "beam",
+  "length": 6.0,
+  "units": {"length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa"},
+  "supports": [
+    {"x": 0.0, "type": "pin"},
+    {"x": 6.0, "type": "roller"}
+  ],
+  "loads": [
+    {"type": "distributed", "x0": 0.0, "x1": 3.0, "q0": -4.0, "q1": -4.0, "dir": "transverse"},
+    {"type": "distributed", "x0": 3.0, "x1": 5.0, "q0": 0.0, "q1": 0.0, "dir": "transverse"},
+    {"type": "point_force", "x": 5.0, "value": -6.0, "dir": "transverse"}
+  ],
+  "section": {"shape": "ishape", "params": {"bf": 0.12, "tf": 0.012, "hw": 0.2, "tw": 0.008}, "E": 206000.0, "material": "Q235"},
+  "stations": [0, 1.5, 2.5, 3.0, 5.0, 6.0]
+}

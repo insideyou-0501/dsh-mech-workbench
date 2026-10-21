@@ -1,0 +1,13 @@
+{
+  "kind": "beam",
+  "length": 3.0,
+  "units": {"length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa"},
+  "supports": [
+    {"x": 0.0, "type": "fixed"}
+  ],
+  "loads": [
+    {"type": "point_force", "x": 3.0, "value": -8.0, "dir": "transverse"}
+  ],
+  "section": {"shape": "rect", "params": {"b": 0.1, "h": 0.2}, "E": 200000.0, "material": "Q235"},
+  "stations": [0, 1.0, 2.0, 3.0]
+}

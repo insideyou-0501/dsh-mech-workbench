@@ -1,0 +1,23 @@
+﻿{
+    "src":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\q1_beam.png",
+    "ops":  [
+                {
+                    "op":  "auto_orient"
+                },
+                {
+                    "op":  "upscale",
+                    "factor":  1.3
+                },
+                {
+                    "op":  "autocontrast",
+                    "cutoff":  1.0
+                },
+                {
+                    "op":  "sharpen",
+                    "factor":  1.5
+                }
+            ],
+    "max_side":  2000,
+    "out":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\x.png",
+    "quantize":  "maybe"
+}

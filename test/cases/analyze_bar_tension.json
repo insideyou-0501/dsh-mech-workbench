@@ -1,0 +1,9 @@
+{
+  "kind": "bar",
+  "length": 1,
+  "units": { "length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa" },
+  "supports": [{ "x": 0, "type": "fixed" }],
+  "loads": [{ "type": "point_force", "x": 1, "value": 20, "dir": "axial" }],
+  "section": { "shape": "rect", "params": { "b": 0.1, "h": 0.1 } },
+  "expect": { "reactions": { "R0x": -20 }, "N": { "x=0.5": 20 } }
+}

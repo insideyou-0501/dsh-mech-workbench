@@ -1,0 +1,13 @@
+﻿{
+    "original":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\p1_beam.png",
+    "transcription":  "三、计算题（本题 20 分）\n求图示简支梁的最大弯矩 $M_{\\max}$ 与支座反力。\n已知 $P=10\\,\\mathrm{kN}$ 作用在跨中，均布载荷 $q=5\\,\\mathrm{kN/m}$ 分布在 $0\\sim2\\,\\mathrm{m}$ 段，梁长 $L=4\\,\\mathrm{m}$，抗弯截面系数 $W=120\\,\\mathrm{cm^3}$。\n要求：(1) 支座反力 $R_A$、$R_B$；(2) 最大弯矩所在截面 $x$；(3) 最大正应力 $\\sigma_{\\max}=\\frac{M_{\\max}}{W}$，并判断是否满足 $[\\sigma]=160\\,\\mathrm{MPa}$。\n注：手写数字 10 与 20 难分辨，实测均值 5 kN/m ⋅ m⁻¹ ≤ 160 MPa。",
+    "crop_original":  [
+                          0,
+                          0,
+                          1,
+                          0.9
+                      ],
+    "width":  1600,
+    "font_size":  22,
+    "out":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\compare_crop.png"
+}

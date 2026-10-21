@@ -1,0 +1,8 @@
+﻿{
+    "images":  [
+                   "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\compare_stacked_mpl.png"
+               ],
+    "provider":  "deepseek",
+    "max_side":  1600,
+    "prompt":  "这是一张自检对照图，采用上下布局：上方是「原图」，下方是「转写（AI 读出来的题面）」，最底部是提示区。只输出一个 JSON：{\"orientation\":\"vertical 或 horizontal\",\"titles_seen\":[\"你看到的标题\"],\"chinese_ok\":true/false,\"formula_ok\":true/false,\"formulas_seen\":[\"读到的公式\"],\"clipped\":true/false（原图内容是否被裁掉/是否完整）,\"problems\":[\"具体问题\"]}。只描述真正看到的。"
+}

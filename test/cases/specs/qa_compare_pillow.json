@@ -1,0 +1,8 @@
+﻿{
+    "images":  [
+                   "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\compare_pillow.png"
+               ],
+    "provider":  "deepseek",
+    "max_side":  1600,
+    "prompt":  "这是一张用于自检的左右并排对照图：左栏标题是「原图」，右栏标题是「转写（AI 读出来的题面）」，底部有一条提示区。请只输出一个 JSON 对象：{\"chinese_ok\": true/false（右侧中文是否正常，有无方框/乱码）, \"chinese_evidence\": \"你读到的右侧中文片段\", \"formula_ok\": true/false（右侧公式是否可读）, \"formulas_seen\": [\"读到的公式\"], \"layout_ok\": true/false（左右并排、两个标题可见、无内容被裁或重叠）, \"numbers_red\": true/false（底部数值清单数字是否红色醒目）, \"numbers_seen\": [\"底部数值清单里读到的数值\"], \"problems\": [\"具体问题，没有就空数组\"]}。只描述真正看到的内容。"
+}

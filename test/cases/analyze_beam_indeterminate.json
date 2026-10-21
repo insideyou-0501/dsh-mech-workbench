@@ -1,0 +1,12 @@
+{
+  "kind": "beam",
+  "length": 4,
+  "units": { "length": "m", "force": "kN", "moment": "kN*m", "stress": "MPa" },
+  "supports": [
+    { "x": 0, "type": "fixed" },
+    { "x": 4, "type": "roller" }
+  ],
+  "loads": [{ "type": "point_force", "x": 2, "value": -10, "dir": "transverse" }],
+  "section": { "shape": "rect", "params": { "b": 0.1, "h": 0.2 } },
+  "expect": { "determinate": false }
+}
