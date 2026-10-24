@@ -3,6 +3,39 @@
 本文件记录 dsh-mech-workbench 的版本变更。格式遵循 Keep a Changelog，
 版本号遵循语义化版本（SemVer）。
 
+## [未发布]
+
+### 新增
+
+- **图例排版可配置**（`viz_figure` / `mech_diagram` 都走同一套 `figure.py`）：
+  面板支持 `legend_ncol`（列数）、`legend_size`（字号）、`legend_loc`、`legend_framealpha`，
+  也支持对象写法 `legend: {"ncol": 2, "size": 9, "loc": "upper left"}`。
+  原来字号写死 8、列数写死 1，六个系列就排成竖着一长条盖住曲线，
+  而且这些字段传进来会被**静默忽略**（不报错、也不生效）。
+- **`inset` 局部放大窗系列**：`{"kind": "inset", "box": [x0,x1,y0,y1], "at": [l,b,w,h], "series": [...]}`。
+  父图用虚线框标出放大的区域，另开一小块坐标系画同源系列；
+  原来只能靠 `grid 1x2` 拼两个不同 `xlim` 的子图，代价是整个版式被占掉一半。
+- **Pillow 后端有图例了**：原来一条都不画，多系列图只能靠猜颜色，`unsupported` 里也不提。
+  现在按 `legend_ncol` 排两列，位置由 `legend_loc` 决定（九宫格映射）。
+- **数学排版写进工具说明**：`viz_figure` 的描述里说明 `$...$` mathtext 可用
+  （`\frac \sqrt \sum \int \alpha \sigma_1` 等），不再让调用方以为只能画纯文本。
+
+### 修复
+
+- **缺字形不再静默**：字体里没有的字（`⇒`、`σ₁` 用到的 U+2081）会被画成空心方框，
+  而返回值的 `warnings` 是空的——matplotlib 只把这件事写进 stderr。现在两个后端都会在
+  `warnings` 里报「字体缺字形：₁U+2081 …」，并提示改用 ASCII 或 mathtext。
+- **`style` 接受对象写法**：`{"style": {"linestyle": "--", "color": "#c62828"}}` 原来直接崩
+  `ValueError: Unrecognized linestyle: {...}`；字符串写法行为不变。
+- **`note` 上限两后端统一为 4 条**：原来 matplotlib 4、Pillow 3，同一份 spec 换后端会少一条说明；
+  超出的部分现在会在 `warnings` 里如实说明。
+- **脚注不再压刻度标签**：`note` 占的高度会从绘图区里让出来（约束布局的 `rect`），
+  原来它钉在 `y=0.012`，最后一两行会和 x 轴刻度标签叠在一起。
+- **矢量输出不再白写**：`out` 写成 `.svg` / `.pdf` 时文件已经生成，却因为用 PIL 回读尺寸
+  抛 `UnidentifiedImageError` 判整次调用失败；现在只对位图回读像素尺寸。
+- **Pillow 后端写矢量格式给出人话错误**：原来抛 `ValueError: unknown file extension: .svg`，
+  现在是「Pillow 后端只能输出位图…矢量输出需要 matplotlib」。
+
 ## [0.2.1] - 2026-10-23
 
 ### 修复

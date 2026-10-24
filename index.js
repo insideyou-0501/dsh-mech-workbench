@@ -646,15 +646,15 @@ function registerTools(ctx) {
   ctx.tools.register(defineTool({
     name: 'viz_figure',
     description:
-      '通用出图工具（学科无关，不逐学科枚举图型）：给一份声明式 spec，引擎负责排版。坐标系支持直角/对数/极坐标/三维；系列支持折线·阶梯·散点·柱·填充·误差棒·向量场·等高线·热力图·三维曲面·函数曲线与参数曲线（受限表达式求值）；另有图元层（多边形·圆·椭圆·箭头·竖线横线·文字·引线标注）与多子图网格。matplotlib 优先，缺 matplotlib 时自动退回 Pillow 基础后端并如实列出不支持项。check=true 时出图后自动跑一次独立视觉评审。',
+      '通用出图工具（学科无关，不逐学科枚举图型）：给一份声明式 spec，引擎负责排版。坐标系支持直角/对数/极坐标/三维；系列支持折线·阶梯·散点·柱·填充·误差棒·向量场·等高线·热力图·三维曲面·函数曲线与参数曲线（受限表达式求值）；另有图元层（多边形·圆·椭圆·箭头·竖线横线·文字·引线标注）与多子图网格。局部放大用 kind="inset"（在主图上框一块区域另画放大镜，标书/讲义里的"放大 x→0 附近"直接这么画）。文字与轴名支持 mathtext（KaTeX 子集）：用 $...$ 包起来即可写 \\frac{a}{b}、\\sqrt{x}、\\sum_{n=1}^{\\infty}、\\int_a^b、\\alpha、\\sigma_1 等；不要把中文塞进 $...$（会缺字形变空框）。系列一多就用 legend:{ncol:2,size:9} 排两列，别让图例竖着盖住曲线。matplotlib 优先，缺 matplotlib 时自动退回 Pillow 基础后端（含基础图例）并如实列出不支持项。缺字形（如 ⇒、σ₁）会写进 warnings，看到就改成 ASCII 或 mathtext。check=true 时出图后自动跑一次独立视觉评审。',
     parameters: {
       spec: {
         type: 'json',
         required: true,
         description:
-          '图定义：{out?,title?,subtitle?,note?:[],width?,height?,dpi_scale?,backend?:"auto|matplotlib|pillow",grid?:{rows,cols},axes:[{slot?:[r,c],type?:"cartesian|logx|logy|loglog|polar",xlim?,ylim?,xlabel?,ylabel?,title?,grid?,legend?,aspect?:"equal",xticks?,yticks?,unit?,series:[...]}]}。series 形如 {kind,label?,color?,alpha?,...}：line/step/scatter/area 用 x[]+y[]，bar 加 bar_width，errorbar 加 yerr[]，quiver 用 x/y/u/v，contour 用 x/y/z[][]（levels,cmap,filled），heatmap 用 z[][]，surface3d 用 x/y/z[][]（view:[elev,azim]），function 用 expr+xrange，parametric 用 fx/fy+trange，polygon 用 xy[[]]，circle/ellipse 用 center+r 或 width/height，arrow 用 xy+xytext，vline/hline 用 x 或 y，text 用 xy+text，annotate 用 xy+text+xytext。',
+          '图定义：{out?,title?,subtitle?,note?:[],width?,height?,dpi_scale?,backend?:"auto|matplotlib|pillow",grid?:{rows,cols},axes:[{slot?:[r,c],type?:"cartesian|logx|logy|loglog|polar",xlim?,ylim?,xlabel?,ylabel?,title?,grid?,legend?,legend_ncol?,legend_size?,legend_loc?,legend_framealpha?,aspect?:"equal",xticks?,yticks?,unit?,series:[...]}]}。series 形如 {kind,label?,color?,alpha?,style?}：line/step/scatter/area 用 x[]+y[]，bar 加 bar_width，errorbar 加 yerr[]，quiver 用 x/y/u/v，contour 用 x/y/z[][]（levels,cmap,filled），heatmap 用 z[][]，surface3d 用 x/y/z[][]（view:[elev,azim]），function 用 expr+xrange，parametric 用 fx/fy+trange，polygon 用 xy[[]]，circle/ellipse 用 center+r 或 width/height，arrow 用 xy+xytext，vline/hline 用 x 或 y，text 用 xy+text，annotate 用 xy+text+xytext，inset 用 box=[x0,x1,y0,y1]+series[]（子系列同语法，可选 at/xlim/ylim/title）。label 进图例，style 可给 "-"/"--" 或 {linestyle,color,marker}。',
       },
-      out: { type: 'string', description: 'PNG 输出路径；缺省 <workspace>/figures/figure-<时间戳>.png' },
+      out: { type: 'string', description: '输出路径；缺省 <workspace>/figures/figure-<时间戳>.png。位图 (.png/.jpg/.webp/.bmp/.tif) 两后端都行；矢量 (.svg/.pdf) 只有 matplotlib 后端能写' },
       backend: { type: 'string', description: 'auto | matplotlib | pillow（缺省 auto：matplotlib 优先，缺则退回 pillow）' },
       python: { type: 'string', description: '显式指定解释器路径（缺省自动探测带 matplotlib 的解释器，再用带 numpy+Pillow 的）' },
       check: { type: 'boolean', description: '出图后自动调用独立视觉模型质检图面（文字重叠/裁切/自洽性），结论一并返回' },

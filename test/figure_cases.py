@@ -36,7 +36,9 @@ FIGURE = os.path.join(SCRIPTS, "figure.py")
 # 用例里以这些键开头的字段是"期望"，不写进 spec
 CASE_KEYS = ("expect_error", "error_contains", "expect_presets", "expect_kinds",
              "expect_unsupported", "expect_supported", "expect_no_unsupported",
-             "check_circle", "measure_color")
+             "check_circle", "measure_color",
+             # 图面质量相关（本轮新增）：
+             "expect_warning", "forbid_warnings", "expect_ext")
 
 NEW_KINDS = ["hist", "stem", "barh", "stacked_bar", "pie", "box", "table", "graph"]
 
@@ -305,6 +307,86 @@ def cases(backend):
                               "edges": [{"from": "A", "to": "Z"}]}]}],
         "expect_error": True, "error_contains": "节点",
     }
+
+    # ---------------- 图面质量（本轮 PR 的主题） ----------------
+    # 1) 图例排版：6 个系列必须能排成两列（原来字号写死 8、列数写死 1，竖着一条盖住曲线）
+    many_lines = [
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [0, 1, 4, 9], "label": "S0"},
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [0, 1, 2, 3], "label": "S1"},
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [3, 2, 1, 0], "label": "S2"},
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [2, 2, 2, 2], "label": "S3"},
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [1, 3, 2, 4], "label": "S4"},
+        {"kind": "line", "x": [0, 1, 2, 3], "y": [4, 2, 3, 1], "label": "S5"},
+    ]
+    specs["legend_ncol_object"] = {
+        "axes": [{"xlabel": "x", "ylabel": "y", "legend": {"ncol": 2, "size": 9},
+                  "series": [dict(item) for item in many_lines]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+    }
+    specs["legend_ncol_flat"] = {
+        # 面板级平铺写法也必须生效（原来这两个键被静默忽略：不报错、也不生效）
+        "axes": [{"xlabel": "x", "ylabel": "y", "legend_ncol": 3, "legend_size": 7,
+                  "series": [dict(item) for item in many_lines]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+    }
+    specs["legend_off"] = {
+        "axes": [{"legend": False, "series": [dict(item) for item in many_lines]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+    }
+    # 2) 缺字形必须进 warnings（⇒ / σ₁ 在微软雅黑里没有字形，图上会是豆腐块）
+    specs["glyph_missing_warns"] = {
+        "title": "缺字形检测 ⇒",
+        "axes": [{"series": [{"kind": "line", "x": [0, 1, 2], "y": [1, 2, 3], "label": "σ₁"}]}],
+        "expect_kinds": ["line"],
+        "expect_warning": "缺字形",
+    }
+    # 3) 矢量输出不该失败（原来 PIL 回读 .svg 直接抛 UnidentifiedImageError）
+    specs["vector_svg"] = {
+        "axes": [{"series": [{"kind": "line", "x": [0, 1, 2], "y": [1, 3, 2]}]}],
+        "expect_ext": ".svg",
+        # Pillow 只能写位图：那条路上必须是可读中文拒绝，不是 ValueError: unknown file extension
+        "expect_error": pillow, "error_contains": "位图",
+    }
+    # 4) style 给对象不能崩（原来 `ValueError: Unrecognized linestyle: {...}`）
+    specs["style_object"] = {
+        "axes": [{"series": [{"kind": "line", "x": [0, 1, 2], "y": [1, 3, 2],
+                              "style": {"color": "#c62828", "linestyle": "--"}, "label": "虚线"}]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+    }
+    # 5) 元组线型必须原样传给 matplotlib（presets 的中性轴虚线用的是 (0,(5,4))）
+    specs["style_string"] = {
+        "axes": [{"series": [{"kind": "line", "x": [0, 1, 2], "y": [2, 2, 2], "style": ":"}]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+    }
+    # 6) inset 局部放大（matplotlib 支持；Pillow 后端必须如实进 unsupported，不能静默丢）
+    specs["inset_zoom"] = {
+        "title": "局部放大：sin x 在 0 附近",
+        "axes": [{"xlabel": "x", "ylabel": "y", "xlim": [-0.6, 0.6], "ylim": [-0.2, 0.2],
+                  "series": [
+                      {"kind": "function", "expr": "sin(x)", "xrange": [-0.6, 0.6], "n": 400,
+                       "label": "sin x"},
+                      {"kind": "inset", "box": [-0.12, 0.12, -0.013, 0.013],
+                       "at": [0.58, 0.12, 0.38, 0.34], "title": "放大",
+                       "series": [
+                           {"kind": "function", "expr": "sin(x)", "xrange": [-0.12, 0.12], "n": 200},
+                           {"kind": "line", "x": [-0.12, 0.12], "y": [-0.12, 0.12], "style": "--"},
+                       ]},
+                  ]}],
+        "expect_kinds": ["function"] + ([] if pillow else ["inset"]),
+        "expect_unsupported": [] if not pillow else ["inset"],
+        "expect_no_unsupported": not pillow,
+    }
+    specs["bad_inset_box"] = {
+        "axes": [{"series": [{"kind": "inset", "box": [1, 0, 0, 1],
+                              "series": [{"kind": "line", "x": [0, 1], "y": [0, 1]}]}]}],
+        "expect_error": True, "error_contains": "box",
+    }
+    # 7) note 上限两端一致：5 条时只说前 4 条，并把"截断"如实说明
+    specs["note_truncated"] = {
+        "axes": [{"series": [{"kind": "line", "x": [0, 1], "y": [0, 1]}]}],
+        "note": ["n1", "n2", "n3", "n4", "n5"],
+        "expect_warning": "只画前",
+    }
     return specs
 
 
@@ -338,7 +420,8 @@ def circle_ratio(path, hex_color):
 def run_case(python, name, spec, out_dir, backend):
     spec = dict(spec)
     checks = {key: spec.pop(key) for key in CASE_KEYS if key in spec}
-    path = os.path.join(out_dir, "%s.png" % name)
+    ext = checks.get("expect_ext") or ".png"
+    path = os.path.join(out_dir, "%s%s" % (name, ext))
     spec["out"] = path
     spec.setdefault("width", 1000)
     spec.setdefault("height", 620)
@@ -405,9 +488,17 @@ def run_case(python, name, spec, out_dir, backend):
     for wanted in checks.get("expect_presets") or []:
         if wanted not in presets:
             problems.append("presets 里没有 %s（实际 %s）" % (wanted, presets))
-    for warning in payload.get("warnings") or []:
+    all_warnings = payload.get("warnings") or []
+    for warning in all_warnings:
         if "异常放大" in warning:
             problems.append("出现画布异常放大告警：%s" % warning)
+    # 必须出现的提示（缺字形、note 被截断等"不静默"承诺）
+    for needle in checks.get("expect_warning") or []:
+        if not any(needle in item for item in all_warnings):
+            problems.append("warnings 里缺少 %r（实际 %s）" % (needle, all_warnings))
+    for needle in checks.get("forbid_warnings") or []:
+        if any(needle in item for item in all_warnings):
+            problems.append("不该出现的告警里有 %r：%s" % (needle, all_warnings))
 
     ratio_text = None
     color = checks.get("check_circle") or checks.get("measure_color")
