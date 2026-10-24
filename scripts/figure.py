@@ -25,6 +25,23 @@ spec 结构（除 out 外全部可选）
   ]
 }
 
+图例排版（面板级；`legend` 可以是布尔，也可以是对象）
+---------------------------------------------------
+  legend_ncol: 2          # 列数；系列多时排成两列，避免竖着一长条盖住曲线
+  legend_size: 9          # 字号（默认 8）
+  legend_loc: "upper left"  # 同 matplotlib 的 loc；默认 "best"
+  legend_framealpha: 0.85
+  等价写法：legend: {"ncol": 2, "size": 9, "loc": "upper left", "framealpha": 0.85}
+  两个后端都支持（Pillow 后端会画一套等价的图例框）。
+
+文字与数学排版
+-------------
+  标题、轴名、label、text、annotate 都支持 matplotlib mathtext：
+  "$\\sigma_1$"、"$\\frac{\\sin x}{x}$"、"$\\sum a_n x^n$"、"$R=\\limsup|a_n|^{-1/n}$"。
+  只支持 mathtext 子集（\\frac \\sqrt \\sum \\int \\alpha 等），**不支持** \\begin{align} 之类完整 LaTeX。
+  缺字形（例如 ⇒、σ₁ 用到的 U+2081）会在返回值的 warnings 里如实报出来，
+  不再只写进 stderr 让调用方以为图画对了。
+
 系列 kind 与字段
 ----------------
   line/step/scatter/area  : x[], y[]（可省略 x -> 0..n-1）, color, width, style, marker, label
@@ -42,6 +59,9 @@ spec 结构（除 out 外全部可选）
   vline / hline           : x 或 y（可为数组）
   text                    : x, y, text, size, color, ha, va, rotation, box
   annotate                : x, y, text, xytext=[..]（省略则自动偏移）, arrow, color, size
+  inset                   : box=[x0,x1,y0,y1]（要放大的数据区域）, at=[l,b,w,h]（插入位置，
+                            axes 分数坐标，默认 [0.56,0.58,0.42,0.40]）, series=[...]（子系列，
+                            同一套 kind）, xlim/ylim（放大窗的范围，默认取 box）, title, frame
 
 所有系列都支持 label（进图例）、color、alpha。
 
@@ -66,6 +86,8 @@ spec 结构（除 out 外全部可选）
       （不静默降级）；"auto" 装了就用、没装就回退 mathtext 并在 warnings 里说明。
       usetex 不支持中文字符：spec 里只要有中文就会被拒绝并提示改用 mathtext。
       没装 TeX 时建议就用默认的 mathtext——它已经能排上面这些公式。
+
+`style` 既可给字符串（"-"、"--"），也可给对象（{"linestyle":"--","color":"#c62828"}）。
 """
 
 import json
@@ -73,6 +95,7 @@ import math
 import os
 import re
 import sys
+import warnings as warnings_mod
 
 try:  # stdout 必须是 UTF-8，避免中文在 GBK 控制台下被打碎
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -99,6 +122,8 @@ SERIES_KINDS = [
     "hist", "stem", "barh", "stacked_bar", "pie", "box", "table", "graph",
     "contour", "heatmap", "surface3d", "function", "parametric",
     "polygon", "circle", "ellipse", "arrow", "vline", "hline", "text", "annotate",
+    # 局部放大窗（图上再开一小块坐标系；只有 matplotlib 后端实现）
+    "inset",
 ]
 # Pillow 后端能画的子集；其余如实进 unsupported
 PILLOW_KINDS = {
@@ -108,6 +133,9 @@ PILLOW_KINDS = {
     "polygon", "circle", "ellipse", "vline", "hline", "text", "annotate", "arrow",
 }
 AXES_TYPES = ["cartesian", "logx", "logy", "loglog", "polar"]
+
+# 位图扩展名（只有这些能回读像素尺寸；svg/pdf 是矢量，交给渲染器决定画布）
+RASTER_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 
 DEFAULT_COLORS = ["#2f6fbf", "#e0603c", "#3f9a5a", "#9b59b6", "#d4a017", "#16a2b8", "#8c564b", "#c0392b"]
 
@@ -150,6 +178,358 @@ def _matrix(value, what):
     return [float(v) for v in value]
 
 
+# --------------------------------------------------------------------------
+# 图例与线型的配置归一（两个后端共用，避免"一个认一个不认"）
+# --------------------------------------------------------------------------
+LEGEND_DEFAULTS = {"size": 8.0, "ncol": 1, "framealpha": 0.85, "loc": "best"}
+
+# 脚注（spec.note）最多画几条。原先 matplotlib 是 4、Pillow 是 3，
+# 同一份 spec 换后端会少一条说明——这种"两端不一致"必须在源头统一。
+NOTE_LIMIT = 4
+
+
+def legend_options(panel):
+    """把面板的图例配置归一成 (启用, 列数, 字号, 位置, 底色不透明度)。
+
+    `legend` 原来是纯布尔，`legend_ncol` / `legend_size` 传进来会被**静默忽略**
+    （不报错、也不生效，比报错更难查）。这里统一支持面板级字段与对象写法：
+        {"legend": true, "legend_ncol": 2, "legend_size": 9}
+        {"legend": {"ncol": 2, "size": 9, "loc": "upper left", "framealpha": 0.85}}
+    非法值一律回落默认值并**说出来**（由调用方把 returned_notes 塞进 warnings）。
+    """
+    raw = panel.get("legend", True)
+    notes = []
+    enabled = True
+    options = dict(LEGEND_DEFAULTS)
+    if isinstance(raw, dict):
+        if raw.get("show") is not None:
+            enabled = bool(raw["show"])
+        for key, alias in (("ncol", ("ncol", "columns")), ("size", ("size", "fontsize")),
+                           ("framealpha", ("framealpha", "alpha")), ("loc", ("loc", "location"))):
+            for name in alias:
+                if raw.get(name) is not None:
+                    options[key] = raw[name]
+                    break
+    elif raw is not None:
+        enabled = bool(raw)
+    # 面板级平铺写法（两种写法同时给时平铺优先：它更靠外、更具体）
+    for field, key in (("legend_ncol", "ncol"), ("legend_size", "size"),
+                       ("legend_framealpha", "framealpha"), ("legend_loc", "loc")):
+        if panel.get(field) is not None:
+            options[key] = panel[field]
+
+    try:
+        ncol = int(options["ncol"])
+    except Exception:
+        notes.append("图例列数 legend_ncol=%r 不是整数，已按 1 列处理" % (options["ncol"],))
+        ncol = 1
+    if ncol < 1 or ncol > 6:
+        notes.append("图例列数 legend_ncol=%r 超出 1~6，已按 1 列处理" % (options["ncol"],))
+        ncol = max(1, min(6, ncol)) if isinstance(ncol, int) else 1
+    try:
+        size = float(options["size"])
+    except Exception:
+        notes.append("图例字号 legend_size=%r 不是数字，已按 %g 处理" % (options["size"], LEGEND_DEFAULTS["size"]))
+        size = LEGEND_DEFAULTS["size"]
+    if not (4.0 <= size <= 24.0):
+        notes.append("图例字号 legend_size=%r 超出 4~24，已按 %g 处理"
+                     % (options["size"], max(4.0, min(24.0, size))))
+        size = max(4.0, min(24.0, size))
+    try:
+        framealpha = float(options["framealpha"])
+    except Exception:
+        notes.append("图例底色 legend_framealpha=%r 不是数字，已按 %g 处理"
+                     % (options["framealpha"], LEGEND_DEFAULTS["framealpha"]))
+        framealpha = LEGEND_DEFAULTS["framealpha"]
+    loc = options["loc"]
+    if not isinstance(loc, str) or not loc.strip():
+        notes.append("图例位置 legend_loc=%r 不是字符串，已按 best 处理" % (loc,))
+        loc = LEGEND_DEFAULTS["loc"]
+    return enabled, ncol, size, str(loc).strip(), max(0.0, min(1.0, framealpha)), notes
+
+
+def resolve_style(series, key="style", default="-"):
+    """把 `style` 字段归一成 (线型, 颜色覆盖, 标记)。
+
+    原来这里是 `linestyle=series.get("style", "-")` 直传给 matplotlib，于是
+    `{"style": {"color": "#c62828", "linestyle": "--"}}` 会崩在
+    `ValueError: Unrecognized linestyle: {...}`——而对象写法是最自然的直觉。
+    现在字符串行为不变，对象写法按字段拆开；认不出的键忽略（不静默改线型）。
+    """
+    raw = series.get(key, default)
+    if isinstance(raw, dict):
+        linestyle = raw.get("linestyle", raw.get("line", default))
+        color = raw.get("color") or raw.get("colour")
+        marker = raw.get("marker")
+        if linestyle is None:
+            linestyle = default
+        # 这里**不能**做 str() 归一：元组写法 (0, (5, 4)) 是 matplotlib 的合法线型，
+        # 强转成字符串会变成 "(0, (5, 4))" 直接崩（presets.py 的中性轴虚线就是这么写的）。
+        return linestyle, color, marker
+    if raw is None:
+        return default, None, None
+    return raw, None, None
+
+
+# --------------------------------------------------------------------------
+# 字体缺字形：从 matplotlib 的 UserWarning 里捞出来，变成人话 warning
+# --------------------------------------------------------------------------
+GLYPH_PATTERN = re.compile(r"Glyph (\d+) \(([^)]*)\) missing from font")
+MATHGLYPH_PATTERN = re.compile(r"does not have a glyph for '\\u([0-9a-fA-F]{4})'")
+
+
+def glyph_warning_text(codes, limit=6):
+    """把一组「字体里没有的字符」变成一条人话 warning（缺字形两个后端共用同一句文案）。"""
+    if not codes:
+        return []
+    pieces = []
+    for code, name in codes[:limit]:
+        char = chr(code) if code >= 32 else ""
+        label = "%sU+%04X" % (char, code)
+        if name:
+            label += "(%s)" % name
+        pieces.append(label)
+    text = "、".join(pieces)
+    if len(codes) > limit:
+        text += " 等 %d 个字符" % len(codes)
+    return ["字体缺字形：%s 在当前字体里没有对应字形，图上会显示成方框。"
+            "改用 ASCII 写法（如 σ1 而不是 σ₁）、或换用支持该字符的字体、"
+            "或改用 mathtext（$\\sigma_1$）。" % text]
+
+
+def glyph_warnings(records, limit=6):
+    """把 matplotlib 的缺字形 UserWarning 聚合成调用方能读懂的提示。
+
+    真实踩到过：画 `⇒`（U+8658）与 `σ₁`（U+2081）时字体里没有这两个字形，
+    图上是一个空心方框（豆腐块），而返回值的 warnings 是空的——调用方以为图是对的。
+    matplotlib 只用 warnings 说这件事（写到 stderr），所以这里必须主动收。
+    """
+    seen = []
+    for record in records or []:
+        message = str(getattr(record, "message", record))
+        for match in GLYPH_PATTERN.finditer(message):
+            code = int(match.group(1))
+            if code not in [item[0] for item in seen]:
+                seen.append((code, match.group(2)))
+        for match in MATHGLYPH_PATTERN.finditer(message):
+            code = int(match.group(1), 16)
+            if code not in [item[0] for item in seen]:
+                seen.append((code, ""))
+    return glyph_warning_text(seen, limit)
+
+
+# Pillow 完全没有缺字形的概念：字体里没有的字，它就照着 .notdef 画一个空心方框，
+# 不报错、不返回任何信息（matplotlib 至少还会往 stderr 写一条 UserWarning）。
+# 判据：把字符画到空白图上取像素签名，和「一个必定不存在的私用区字符」完全相同 → 就是豆腐块。
+PILLOW_TOFU_REFERENCE = "\ue123"
+
+
+def pillow_missing_glyphs(texts, font, limit=6):
+    """返回 Pillow 后端画出来会是豆腐块的那些字符 [(码位, "")]。"""
+    from PIL import Image, ImageDraw
+
+    def signature(char):
+        canvas = Image.new("L", (64, 64), 0)
+        try:
+            ImageDraw.Draw(canvas).text((4, 4), char, font=font, fill=255)
+        except Exception:
+            return None
+        return canvas.tobytes()
+
+    tofu = signature(PILLOW_TOFU_REFERENCE)
+    if tofu is None:
+        return []
+    seen = []
+    cache = {}
+    for text in texts:
+        for char in str(text):
+            code = ord(char)
+            if code < 0x2000 or char.isspace():  # ASCII 与常见标点一定有字形，不必逐字测
+                continue
+            if code in cache:
+                hit = cache[code]
+            else:
+                hit = signature(char) == tofu
+                cache[code] = hit
+            if hit and code not in [item[0] for item in seen]:
+                seen.append((code, ""))
+    return seen[:limit]
+
+
+def _mpl_xy_series(ax, series, skind, color, label, alpha, lw):
+    """xy 家族（line/step/scatter/area/bar/errorbar/quiver）的 matplotlib 绘制。
+
+    抽出来是为了给 inset（局部放大窗）复用——放大窗里画同一批系列必须走**同一份代码**，
+    否则主图和放大图的线型/透明度会悄悄不一致（这正是"看起来对、其实错"的来源）。
+    返回实际用到的 label（None 表示不进图例）。
+    """
+    xs = series.get("x")
+    if skind == "quiver":
+        xx = _floats(_require(series, "x", list, "quiver"), "x")
+        yy = _floats(_require(series, "y", list, "quiver"), "y")
+        uu = _floats(_require(series, "u", list, "quiver"), "u")
+        vv = _floats(_require(series, "v", list, "quiver"), "v")
+        ax.quiver(xx, yy, uu, vv, angles="xy", scale_units="xy", scale=1,
+                  color=color, alpha=alpha, label=label)
+        return label
+    yv = _floats(_require(series, "y", list, "系列"), "y")
+    xv = _floats(xs, "x") if xs else list(range(len(yv)))
+    if len(xv) != len(yv):
+        raise SpecError("x 与 y 长度不一致（%d vs %d）" % (len(xv), len(yv)))
+    linestyle, style_color, style_marker = resolve_style(series)
+    color = color or style_color
+    if skind == "line":
+        ax.plot(xv, yv, color=color, linewidth=lw, alpha=alpha,
+                linestyle=linestyle,
+                marker=series.get("marker") or style_marker, label=label)
+    elif skind == "step":
+        ax.step(xv, yv, where=series.get("where", "post"), color=color,
+                linewidth=lw, alpha=alpha, label=label)
+    elif skind == "scatter":
+        ax.scatter(xv, yv, color=color, s=float(series.get("size", 28)), alpha=alpha,
+                   marker=series.get("marker") or style_marker or "o", label=label)
+    elif skind == "area":
+        ax.fill_between(xv, series.get("baseline", 0.0), yv, color=color,
+                        alpha=float(series.get("alpha", 0.3)), label=label)
+    elif skind == "bar":
+        ax.bar(xv, yv, width=float(series.get("bar_width", 0.8)), color=color,
+               alpha=alpha, label=label)
+    else:  # errorbar
+        yerr = series.get("yerr")
+        xerr = series.get("xerr")
+        ax.errorbar(xv, yv, yerr=_floats(yerr, "yerr") if yerr else None,
+                    xerr=_floats(xerr, "xerr") if xerr else None,
+                    color=color, linewidth=lw, capsize=float(series.get("capsize", 3)),
+                    marker=series.get("marker") or style_marker or "o", alpha=alpha, label=label)
+    return label
+
+
+# 局部放大窗里能复用的系列（其余如实进 unsupported，不静默省略）
+INSET_KINDS = ("line", "step", "scatter", "area", "bar", "errorbar",
+               "function", "parametric", "vline", "hline", "text", "annotate")
+
+
+def inset_geometry(series):
+    """校验并返回 inset 的 (box, at, frame_color)。
+
+    两个后端共用同一份校验：Pillow 端画不了放大窗，但**必须**照样报出参数错误，
+    否则同一个 spec 在 matplotlib 上报错、在 Pillow 上静默出图，行为就不一致了。
+    """
+    box = series.get("box")
+    if not isinstance(box, list) or len(box) != 4:
+        raise SpecError("inset 需要 box=[x0,x1,y0,y1]（要放大的数据区域）")
+    x0, x1, y0, y1 = [float(v) for v in box]
+    if x1 <= x0 or y1 <= y0:
+        raise SpecError("inset 的 box 必须满足 x1>x0 且 y1>y0（收到 %s）" % (box,))
+    at = series.get("at")
+    if at is None:
+        at = [0.56, 0.58, 0.42, 0.40]
+    if not isinstance(at, list) or len(at) != 4:
+        raise SpecError("inset 的 at 必须是 [left, bottom, width, height]（axes 分数坐标）")
+    left, bottom, wide, tall = [float(v) for v in at]
+    if wide <= 0 or tall <= 0 or wide > 1.0 or tall > 1.0:
+        raise SpecError("inset 的 at 宽高必须在 (0,1] 内（收到 %s）" % (at,))
+    return (x0, x1, y0, y1), (left, bottom, wide, tall), series.get("frame_color", "#90a4ae")
+
+
+def _mpl_inset(ax, panel, series, unsupported):
+    """局部放大窗：在父坐标系上画一个框，另开一小块坐标系放大那块区域。
+
+    真实需求：`sin x` 的过冲、`x→0` 附近的极限行为、`y` 轴窄区间里的细节，
+    在主图上永远看不清；原来的办法是用 `grid 1x2` 拼两个不同 xlim 的子图，
+    代价是整个版式被占掉一半。inset 让"放大镜"直接落在图上。
+    """
+    (x0, x1, y0, y1), (left, bottom, wide, tall), frame_color = inset_geometry(series)
+    import matplotlib.pyplot as plt   # 本函数在 render_matplotlib 之外，自己取一次（模块已加载，开销可忽略）
+    # 父图上标出"放大的是哪一块"
+    if series.get("mark", True):
+        ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
+                                   edgecolor=frame_color, linewidth=1.0, linestyle=(0, (4, 3)),
+                                   zorder=6))
+    try:
+        sub = ax.inset_axes([left, bottom, wide, tall])
+    except AttributeError:  # 老版本 matplotlib 没有 inset_axes
+        sub = ax.figure.add_axes([left, bottom, wide, tall])
+    sub.set_xlim([float(v) for v in (series.get("xlim") or [x0, x1])])
+    sub.set_ylim([float(v) for v in (series.get("ylim") or [y0, y1])])
+    sub.tick_params(labelsize=7, length=2)
+    if series.get("grid", True):
+        sub.grid(True, alpha=0.2, linewidth=0.5)
+    if series.get("frame", True):
+        sub.set_facecolor("white")
+        for spine in sub.spines.values():
+            spine.set_edgecolor(frame_color)
+            spine.set_linewidth(1.0)
+    if series.get("title"):
+        sub.set_title(str(series["title"]), fontsize=8, color="#37474f", pad=3)
+
+    for child in series.get("series") or []:
+        if not isinstance(child, dict):
+            raise SpecError("inset 的 series 每一项必须是对象")
+        ckind = child.get("kind")
+        if ckind not in SERIES_KINDS:
+            raise SpecError("inset 里未知系列 kind=%r（可用 %s）" % (ckind, "/".join(SERIES_KINDS)))
+        if ckind not in INSET_KINDS:
+            unsupported.append("inset 内的系列 %s（放大窗里只支持 %s）"
+                               % (ckind, "/".join(INSET_KINDS)))
+            continue
+        ccolor = child.get("color")
+        calpha = float(child.get("alpha", 1.0))
+        clw = float(child.get("width", 1.4))
+        clabel = child.get("label")
+        if ckind in ("line", "step", "scatter", "area", "bar", "errorbar"):
+            _mpl_xy_series(sub, child, ckind, ccolor, clabel, calpha, clw)
+        elif ckind in ("function", "parametric"):
+            rng = child.get("trange") if ckind == "parametric" else child.get("xrange")
+            if not rng:
+                raise SpecError("inset 里 %s 需要 %s" % (ckind, "trange" if ckind == "parametric" else "xrange"))
+            grid = np.linspace(float(rng[0]), float(rng[1]), int(child.get("n") or 400))
+            if ckind == "function":
+                sub.plot(grid, evaluate(_require(child, "expr", str, "function"), "x", grid),
+                         color=ccolor, linewidth=clw, alpha=calpha, label=clabel)
+            else:
+                sub.plot(evaluate(_require(child, "fx", str, "parametric"), "t", grid),
+                         evaluate(_require(child, "fy", str, "parametric"), "t", grid),
+                         color=ccolor, linewidth=clw, alpha=calpha, label=clabel)
+        elif ckind in ("vline", "hline"):
+            values = child.get("x") if ckind == "vline" else child.get("y")
+            if values is None:
+                raise SpecError("inset 里 %s 需要 %s" % (ckind, "x" if ckind == "vline" else "y"))
+            for value in _floats(values if isinstance(values, list) else [values], ckind):
+                if ckind == "vline":
+                    sub.axvline(value, color=ccolor or "#888888", linewidth=clw, alpha=calpha,
+                                linestyle=child.get("style", "--"))
+                else:
+                    sub.axhline(value, color=ccolor or "#888888", linewidth=clw, alpha=calpha,
+                                linestyle=child.get("style", "--"))
+        elif ckind == "text":
+            pos = _floats(_require(child, "xy", list, "text"), "xy")
+            sub.text(pos[0], pos[1], str(child.get("text", "")), fontsize=float(child.get("size", 8)),
+                     color=ccolor or "#222222", ha=child.get("ha", "center"),
+                     va=child.get("va", "center"), alpha=calpha)
+        else:  # annotate
+            pos = _floats(_require(child, "xy", list, "annotate"), "xy")
+            offset = _floats(child.get("xytext") or [14, 14], "xytext")
+            sub.annotate(str(child.get("text", "")), xy=(pos[0], pos[1]), xytext=(offset[0], offset[1]),
+                         textcoords="offset points", fontsize=float(child.get("size", 8)),
+                         color=ccolor or "#c0392b", annotation_clip=False,
+                         arrowprops=dict(arrowstyle="-", color=ccolor or "#c0392b", linewidth=0.8,
+                                         linestyle=(0, (4, 3)), shrinkA=1.0, shrinkB=2.0)
+                         if child.get("arrow", True) else None)
+    legend_labels = []
+    try:
+        handles, labels = sub.get_legend_handles_labels()
+        legend_labels = [str(item) for item in labels]
+    except Exception:
+        legend_labels = []
+    if series.get("legend", False) and legend_labels:
+        sub.legend(fontsize=6.5, framealpha=0.8, loc="best")
+    return sub
+
+
+# --------------------------------------------------------------------------
+# 表达式求值
+# --------------------------------------------------------------------------
 def evaluate(expr, variable, values):
     """受限表达式求值：只暴露白名单函数与变量。
 
@@ -647,6 +1027,7 @@ def render_matplotlib(spec, out, width, height, scale):
 
     unsupported = []
     used = []
+    option_notes = []   # 配置类提示（图例参数越界、note 被截断等），随返回值上报
     auto_slot = 0
     for index, panel in enumerate(panels):
         kind = panel.get("type") or "cartesian"
@@ -705,43 +1086,9 @@ def render_matplotlib(spec, out, width, height, scale):
             alpha = float(series.get("alpha", 1.0))
             lw = float(series.get("width", 2.0))
             if skind in ("line", "step", "scatter", "area", "bar", "errorbar", "quiver"):
-                xs = series.get("x")
-                ys = series.get("y")
-                if skind == "quiver":
-                    xx = _floats(_require(series, "x", list, "quiver"), "x")
-                    yy = _floats(_require(series, "y", list, "quiver"), "y")
-                    uu = _floats(_require(series, "u", list, "quiver"), "u")
-                    vv = _floats(_require(series, "v", list, "quiver"), "v")
-                    ax.quiver(xx, yy, uu, vv, angles="xy", scale_units="xy", scale=1,
-                              color=color, alpha=alpha, label=label)
-                else:
-                    yv = _floats(_require(series, "y", list, "系列"), "y")
-                    xv = _floats(xs, "x") if xs else list(range(len(yv)))
-                    if len(xv) != len(yv):
-                        raise SpecError("x 与 y 长度不一致（%d vs %d）" % (len(xv), len(yv)))
-                    if skind == "line":
-                        ax.plot(xv, yv, color=color, linewidth=lw, alpha=alpha,
-                                linestyle=series.get("style", "-"),
-                                marker=series.get("marker"), label=label)
-                    elif skind == "step":
-                        ax.step(xv, yv, where=series.get("where", "post"), color=color,
-                                linewidth=lw, alpha=alpha, label=label)
-                    elif skind == "scatter":
-                        ax.scatter(xv, yv, color=color, s=float(series.get("size", 28)), alpha=alpha,
-                                   marker=series.get("marker", "o"), label=label)
-                    elif skind == "area":
-                        ax.fill_between(xv, series.get("baseline", 0.0), yv, color=color,
-                                        alpha=float(series.get("alpha", 0.3)), label=label)
-                    elif skind == "bar":
-                        ax.bar(xv, yv, width=float(series.get("bar_width", 0.8)), color=color,
-                               alpha=alpha, label=label)
-                    else:  # errorbar
-                        yerr = series.get("yerr")
-                        xerr = series.get("xerr")
-                        ax.errorbar(xv, yv, yerr=_floats(yerr, "yerr") if yerr else None,
-                                    xerr=_floats(xerr, "xerr") if xerr else None,
-                                    color=color, linewidth=lw, capsize=float(series.get("capsize", 3)),
-                                    marker=series.get("marker", "o"), alpha=alpha, label=label)
+                _mpl_xy_series(ax, series, skind, color, label, alpha, lw)
+            elif skind == "inset":
+                _mpl_inset(ax, panel, series, unsupported)
             elif skind in ("contour", "heatmap", "surface3d"):
                 z = np.array(_matrix(_require(series, "z", None, skind), "z"), dtype=float)
                 cmap = series.get("cmap", "viridis")
@@ -1019,22 +1366,48 @@ def render_matplotlib(spec, out, width, height, scale):
                     ax.set_aspect("equal", adjustable="datalim")
             used.append(skind)
 
+        enabled, ncol, size, loc, framealpha, legend_notes = legend_options(panel)
+        option_notes.extend(legend_notes)
         handles, labels = ax.get_legend_handles_labels()
-        if panel.get("legend", True) and labels:
-            ax.legend(fontsize=8, framealpha=0.85, loc=panel.get("legend_loc", "best"))
+        if enabled and labels:
+            ax.legend(fontsize=size, ncol=ncol, framealpha=framealpha, loc=loc)
 
     notes = spec.get("note") or []
+    bottom_pad = 0.0
     if notes:
-        fig.text(0.012, 0.012, "\n".join("· %s" % n for n in notes[:4]), ha="left", va="bottom",
-                 fontsize=8, color="#666666")
-    if not constrained:
+        # 两个后端的 note 上限统一为 4 条；超出的如实说，不静默丢弃
+        shown = notes[:NOTE_LIMIT]
+        if len(notes) > NOTE_LIMIT:
+            option_notes.append("note 共 %d 条，只画前 %d 条" % (len(notes), NOTE_LIMIT))
+        # 脚注占的高度必须从绘图区里**让出来**：原来它直接钉在 y=0.012，
+        # 约束布局并不知道那里有字，于是最后一行脚注会压在 x 轴刻度标签上
+        # （实拍 inset 图时就是这样：刻度 -0.6/-0.4 与脚注叠在一起）。
+        line_count = max(1, len(shown))
+        figure_height_pt = (height / dpi) * 72.0
+        note_height_pt = line_count * 8.0 * 1.45 + 10.0
+        bottom_pad = min(0.36, note_height_pt / max(figure_height_pt, 1.0))
+        fig.text(0.012, 0.008, "\n".join("· %s" % n for n in shown), ha="left", va="bottom",
+                 fontsize=8, color="#666666", linespacing=1.45)
+    if constrained:
+        try:
+            engine = fig.get_layout_engine()
+            if engine is not None and hasattr(engine, "set"):
+                engine.set(rect=(0.0, bottom_pad, 1.0, 0.94 if spec.get("title") else 1.0))
+        except Exception:
+            pass
+    else:
         # 老版本 matplotlib 没有约束布局时才退回 tight_layout
-        fig.tight_layout(rect=(0, 0.02 if notes else 0, 1, 0.94 if spec.get("title") else 1))
-    fig.savefig(out, dpi=dpi * scale, facecolor="white",
-                transparent=bool(spec.get("transparent")), bbox_inches="tight")
+        fig.tight_layout(rect=(0, bottom_pad, 1, 0.94 if spec.get("title") else 1))
+    # savefig 是真正"把字画上去"的地方，缺字形（豆腐块）只在这里以 warnings 模块报出。
+    # 必须主动抓：否则调用方看到的 warnings 是空的，图上的方框无人知晓。
+    with warnings_mod.catch_warnings(record=True) as caught:
+        warnings_mod.simplefilter("always")
+        fig.savefig(out, dpi=dpi * scale, facecolor="white",
+                    transparent=bool(spec.get("transparent")), bbox_inches="tight")
     plt.close(fig)
     return {"backend": "matplotlib", "unsupported": unsupported, "kinds": sorted(set(used)),
-            "panels": len(panels), "warnings": list(math_notes)}
+            "panels": len(panels),
+            "warnings": list(math_notes) + list(option_notes) + glyph_warnings(caught)}
 
 
 # --------------------------------------------------------------------------
@@ -1074,6 +1447,73 @@ def _nice_ticks(lo, hi, target=5):
     return ticks[0], ticks[-1], ticks
 
 
+PILLOW_LEGEND_LOCS = {
+    # 把 matplotlib 的 loc 说法映射到 Pillow 端的九宫格锚点
+    "best": "upper right", "upper right": "upper right", "upper left": "upper left",
+    "lower left": "lower left", "lower right": "lower right", "upper center": "upper center",
+    "lower center": "lower center", "center": "center", "center left": "center left",
+    "center right": "center right", "right": "center right", "left": "center left",
+}
+
+
+def _pillow_legend(draw, box, entries, font, scale, loc="best", ncol=1, framealpha=0.85):
+    """在绘图区里画一个图例（Pillow 后端原来完全没有图例，系列一多就分不清谁是谁）。
+
+    `entries` 是 [(label, color)]；没有 label 的系列不进来。
+    这里只支持纯色"线段 + 文字"，不做 marker 形状——够用，且一定不会画错。
+    """
+    if not entries:
+        return
+    l, t, r_, b = box
+    pad = 8 * scale
+    row_h = int(18 * scale)
+    swatch = int(18 * scale)
+    gap_x = int(10 * scale)
+    measured = []
+    for label, color in entries:
+        try:
+            width = draw.textbbox((0, 0), label, font=font)[2]
+        except Exception:
+            width = len(label) * 6 * scale
+        measured.append((label, color, width))
+    cols = max(1, int(ncol))
+    rows = int(math.ceil(len(measured) / float(cols)))
+    col_w = []
+    for index in range(cols):
+        chunk = measured[index * rows:(index + 1) * rows]
+        col_w.append(max([swatch + gap_x + item[2] for item in chunk] or [0]))
+    box_w = sum(col_w) + gap_x * (cols - 1) + pad * 2
+    box_h = rows * row_h + pad * 2
+    mode = PILLOW_LEGEND_LOCS.get(str(loc).strip().lower(), "upper right")
+    if "left" in mode:
+        x0 = l + pad
+    elif "right" in mode:
+        x0 = r_ - pad - box_w
+    else:
+        x0 = (l + r_) / 2.0 - box_w / 2.0
+    if mode.startswith("upper"):
+        y0 = t + pad
+    elif mode.startswith("lower"):
+        y0 = b - pad - box_h
+    else:
+        y0 = (t + b) / 2.0 - box_h / 2.0
+    x0 = max(l + pad, min(x0, r_ - pad - box_w))
+    y0 = max(t + pad, min(y0, b - pad - box_h))
+    draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=_rgba("#ffffff", framealpha),
+                   outline=_rgba("#cfd8dc", 0.9), width=max(1, int(scale)))
+    cursor_x = x0 + pad
+    for column in range(cols):
+        chunk = measured[column * rows:(column + 1) * rows]
+        cursor_y = y0 + pad
+        for label, color, _width in chunk:
+            mid = cursor_y + row_h / 2.0
+            draw.line([cursor_x, mid, cursor_x + swatch, mid], fill=color,
+                      width=max(2, int(2 * scale)))
+            draw.text((cursor_x + swatch + gap_x, mid), label, font=font, fill="#37474f", anchor="lm")
+            cursor_y += row_h
+        cursor_x += col_w[column] + gap_x
+
+
 def render_pillow(spec, out, width, height, scale):
     from PIL import Image, ImageDraw, ImageFont
 
@@ -1093,6 +1533,7 @@ def render_pillow(spec, out, width, height, scale):
     panels = spec.get("axes") or [{"slot": [0, 0]}]
     unsupported = []
     kinds = []
+    option_notes = []   # 配置类提示（图例参数越界、note 被截断等），与 matplotlib 端同样上报
 
     def font(size, bold=False):
         for name in (("msyhbd.ttc" if bold else "msyh.ttc"), "simhei.ttf", "simsun.ttc", "Deng.ttf"):
@@ -1135,7 +1576,14 @@ def render_pillow(spec, out, width, height, scale):
             skind = series.get("kind")
             if skind not in PILLOW_KINDS:
                 if skind in SERIES_KINDS:
-                    unsupported.append("系列 %s（Pillow 后端不支持，请用 matplotlib）" % skind)
+                    if skind == "inset":
+                        # 参数错误必须照样报（同一 spec 不能"在 matplotlib 上报错、在 Pillow 上出图"），
+                        # 但能画的部分如实降级：放大窗画不出来，主图照旧。
+                        inset_geometry(series)
+                        unsupported.append("系列 inset（Pillow 后端不支持局部放大窗，请用 matplotlib；"
+                                           "主图已正常绘制）")
+                    else:
+                        unsupported.append("系列 %s（Pillow 后端不支持，请用 matplotlib）" % skind)
                 else:
                     raise SpecError("未知系列 kind=%r" % skind)
 
@@ -1509,13 +1957,49 @@ def render_pillow(spec, out, width, height, scale):
                     _pillow_label(draw, (cx0, cy0), str(node["label"]), f_tick,
                                   "#22303c", scale, "mm")
 
+        # 图例（Pillow 端原来一条都没有：多系列图只能靠猜颜色；note 也没说缺图例）
+        enabled, ncol, legend_size, legend_loc, framealpha, legend_notes = legend_options(panel)
+        option_notes.extend(legend_notes)
+        if enabled:
+            entries = []
+            for order, series in enumerate(series_list):
+                if series.get("kind") not in PILLOW_KINDS:
+                    continue
+                label = series.get("label")
+                if not label:
+                    continue
+                entries.append((str(label),
+                                series.get("color") or DEFAULT_COLORS[order % len(DEFAULT_COLORS)]))
+            if entries:
+                _pillow_legend(draw, (l, t, r_, b), entries, font(int(legend_size * 0.72), False),
+                               scale, loc=legend_loc, ncol=ncol, framealpha=framealpha)
+
+    pillow_texts = []
+    for panel in panels:
+        pillow_texts.append(panel.get("title") or "")
+        pillow_texts.append(panel.get("xlabel") or "")
+        pillow_texts.append(panel.get("ylabel") or "")
+        for series in panel.get("series") or []:
+            pillow_texts.append(series.get("label") or "")
+            pillow_texts.append(series.get("text") or "")
+    pillow_texts.append(spec.get("title") or "")
+    pillow_texts.append(spec.get("subtitle") or "")
+    pillow_texts.extend(str(item) for item in (spec.get("note") or []))
+
     if spec.get("note"):
-        for i, note in enumerate(spec["note"][:3]):
+        notes = spec["note"]
+        shown = notes[:NOTE_LIMIT]
+        if len(notes) > NOTE_LIMIT:
+            # 与 matplotlib 端同一句文案：超出的 note 如实说，不静默丢
+            option_notes.append("note 共 %d 条，只画前 %d 条" % (len(notes), NOTE_LIMIT))
+        for i, note in enumerate(shown):
             draw.text((int(20 * scale), int(height * scale) - int((48 - i * 16) * scale)),
                       "· " + str(note), font=f_tick, fill="#607d8b", anchor="la")
     img.save(out)
     return {"backend": "pillow", "unsupported": sorted(set(unsupported)), "kinds": sorted(set(kinds)),
-            "panels": len(panels)}
+            "panels": len(panels),
+            "warnings": list(option_notes) + glyph_warning_text(
+                pillow_missing_glyphs(pillow_texts, f_tick))}
 
 
 # --------------------------------------------------------------------------
@@ -1662,13 +2146,24 @@ def render(spec):
     if has_matplotlib and requested != "pillow":
         info = render_matplotlib(spec, out, width, height, scale)
     else:
+        # Pillow 只能写位图：.svg/.pdf 让它直接抛 ValueError: unknown file extension，
+        # 那句英文既没说是谁的问题也没给替代方案，这里换成可读中文。
+        if os.path.splitext(out)[1].lower() not in RASTER_EXTENSIONS:
+            raise SpecError("Pillow 后端只能输出位图（%s），不能写 %s；"
+                            "矢量输出需要 matplotlib"
+                            % ("/".join(RASTER_EXTENSIONS), os.path.basename(out)))
         info = render_pillow(spec, out, width, height, scale)
 
     if not os.path.exists(out):
         raise SpecError("渲染未生成文件：%s" % out)
-    from PIL import Image
-    with Image.open(out) as image:
-        final_w, final_h = image.size
+    if os.path.splitext(out)[1].lower() in RASTER_EXTENSIONS:
+        from PIL import Image
+        with Image.open(out) as image:
+            final_w, final_h = image.size
+    else:
+        # 矢量输出（.svg/.pdf）PIL 打不开——原来在这里抛 UnidentifiedImageError，
+        # 文件其实已经画好了却被判失败。矢量格式按请求尺寸如实上报。
+        final_w, final_h = int(width * scale), int(height * scale)
     summary = {
         "ok": True, "out": out, "backend": info["backend"], "width": final_w, "height": final_h,
         "bytes": os.path.getsize(out), "panels": info["panels"], "kinds": info["kinds"],
