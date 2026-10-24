@@ -646,13 +646,13 @@ function registerTools(ctx) {
   ctx.tools.register(defineTool({
     name: 'viz_figure',
     description:
-      '通用出图工具（学科无关，不逐学科枚举图型）：给一份声明式 spec，引擎负责排版。坐标系支持直角/对数/极坐标/三维；系列支持折线·阶梯·散点·柱·填充·误差棒·向量场·等高线·热力图·三维曲面·函数曲线与参数曲线（受限表达式求值）；另有图元层（多边形·圆·椭圆·箭头·竖线横线·文字·引线标注）与多子图网格。matplotlib 优先，缺 matplotlib 时自动退回 Pillow 基础后端并如实列出不支持项。check=true 时出图后自动跑一次独立视觉评审。',
+      '通用出图工具（学科无关，不逐学科枚举图型）：给一份声明式 spec，引擎负责排版。坐标系支持直角/对数/极坐标/三维；系列支持折线·阶梯·散点·柱·填充·误差棒·向量场·等高线·热力图·三维曲面·函数曲线与参数曲线（受限表达式求值）；另有图元层（多边形·圆·椭圆·箭头·竖线横线·文字·引线标注）与多子图网格。matplotlib 优先，缺 matplotlib 时自动退回 Pillow 基础后端并如实列出不支持项。所有文字（标题、轴名、图例、文字标注、表格）都支持 mathtext：公式写在 $...$ 里，例如 "$\\frac{\\sin x}{x}$"、"$\\sigma_1$"、"$\\sum_{n=1}^{\\infty} a_n x^n$"，中文写在公式外面，不需要本机装 LaTeX。check=true 时出图后自动跑一次独立视觉评审。',
     parameters: {
       spec: {
         type: 'json',
         required: true,
         description:
-          '图定义：{out?,title?,subtitle?,note?:[],width?,height?,dpi_scale?,backend?:"auto|matplotlib|pillow",grid?:{rows,cols},axes:[{slot?:[r,c],type?:"cartesian|logx|logy|loglog|polar",xlim?,ylim?,xlabel?,ylabel?,title?,grid?,legend?,aspect?:"equal",xticks?,yticks?,unit?,series:[...]}]}。series 形如 {kind,label?,color?,alpha?,...}：line/step/scatter/area 用 x[]+y[]，bar 加 bar_width，errorbar 加 yerr[]，quiver 用 x/y/u/v，contour 用 x/y/z[][]（levels,cmap,filled），heatmap 用 z[][]，surface3d 用 x/y/z[][]（view:[elev,azim]），function 用 expr+xrange，parametric 用 fx/fy+trange，polygon 用 xy[[]]，circle/ellipse 用 center+r 或 width/height，arrow 用 xy+xytext，vline/hline 用 x 或 y，text 用 xy+text，annotate 用 xy+text+xytext。',
+          '图定义：{out?,title?,subtitle?,note?:[],width?,height?,dpi_scale?,backend?:"auto|matplotlib|pillow",grid?:{rows,cols},axes:[{slot?:[r,c],type?:"cartesian|logx|logy|loglog|polar",xlim?,ylim?,xlabel?,ylabel?,title?,grid?,legend?,aspect?:"equal",xticks?,yticks?,unit?,series:[...]}]}。series 形如 {kind,label?,color?,alpha?,...}：line/step/scatter/area 用 x[]+y[]，bar 加 bar_width，errorbar 加 yerr[]，quiver 用 x/y/u/v，contour 用 x/y/z[][]（levels,cmap,filled），heatmap 用 z[][]，surface3d 用 x/y/z[][]（view:[elev,azim]），function 用 expr+xrange，parametric 用 fx/fy+trange，polygon 用 xy[[]]，circle/ellipse 用 center+r 或 width/height，arrow 用 xy+xytext，vline/hline 用 x 或 y，text 用 xy+text，annotate 用 xy+text+xytext。数学排版：math_fontset?:"dejavusans|dejavuserif|cm|stix|stixsans"（cm/stix 是论文里常见的衬线数学字形），font_family?:字符串或数组（覆盖默认字体链，默认链末尾有 DejaVu Sans 兜底，缺字形不会画成方框），font_fallback?:false 可关掉兜底，latex?:true|false|"auto"（真 LaTeX：需要本机装 latex+dvipng，缺就明确报错；没装时用默认 mathtext 即可）。',
       },
       out: { type: 'string', description: 'PNG 输出路径；缺省 <workspace>/figures/figure-<时间戳>.png' },
       backend: { type: 'string', description: 'auto | matplotlib | pillow（缺省 auto：matplotlib 优先，缺则退回 pillow）' },

@@ -44,6 +44,28 @@ spec 结构（除 out 外全部可选）
   annotate                : x, y, text, xytext=[..]（省略则自动偏移）, arrow, color, size
 
 所有系列都支持 label（进图例）、color、alpha。
+
+数学排版（LaTeX）
+----------------
+  所有文字（title/subtitle/note/轴名/label/text/annotate/表格）都走 matplotlib 的文字管线，
+  因此 `$...$` 里的内容按 TeX 子集（mathtext）排版：
+      "$\\frac{\\sin x}{x}$"、"$\\sqrt{x^2+1}$"、"$\\sum_{n=1}^{\\infty} a_n x^n$"、
+      "$\\int_0^1 f(x)\\,dx$"、"$\\sigma_1,\\ \\varepsilon_{ij}$"
+  支持的写法就是 mathtext 的子集：希腊字母、上下标、分式、根式、求和/积分/极限、
+  常用关系符；**不支持** \\begin{align}、\\newcommand、自定义宏包。
+  中文不要放进 `$...$`（mathtext 没有中文字形），中文写在公式外面即可。
+
+  math_fontset: "dejavusans"（默认）| "dejavuserif" | "cm" | "stix" | "stixsans"
+      "cm"/"stix" 是论文里常见的衬线数学字形；"dejavusans" 与中文黑体最协调。
+  font_family: "Microsoft YaHei" | ["Microsoft YaHei", "DejaVu Sans"]
+      覆盖默认字体链。默认链的顺序保证"中文优先、DejaVu Sans 兜底"，
+      缺字（例如 ⇒、σ₁）会逐字形回退到 DejaVu Sans，不会画成方框。
+  font_fallback: false   # 关掉上面的兜底字族（不推荐）
+  latex: true | false | "auto"
+      真 LaTeX（text.usetex）。true 需要本机装好 latex + dvipng，缺就**直接报错**
+      （不静默降级）；"auto" 装了就用、没装就回退 mathtext 并在 warnings 里说明。
+      usetex 不支持中文字符：spec 里只要有中文就会被拒绝并提示改用 mathtext。
+      没装 TeX 时建议就用默认的 mathtext——它已经能排上面这些公式。
 """
 
 import json
@@ -427,6 +449,161 @@ def draw_box_mpl(ax, center, five, width, color, linewidth, alpha):
 
 
 # --------------------------------------------------------------------------
+# 数学排版：mathtext 字体集 / 字体回退链 / 可选的真 LaTeX（usetex）
+# --------------------------------------------------------------------------
+MATH_FONTSETS = ("dejavusans", "dejavuserif", "cm", "stix", "stixsans")
+
+# 默认字体链：中文优先，**末尾必须是 DejaVu Sans**。
+# matplotlib ≥3.6 的逐字形回退要求 font.family 是一串具体字族（不能只给 "sans-serif"），
+# 否则缺字（⇒ U+21D2、σ₁ U+2081）会直接画成空心方框——只写 font.sans-serif 不管用。
+DEFAULT_FONT_STACK = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC",
+                      "Source Han Sans SC", "PingFang SC", "Heiti SC",
+                      "WenQuanYi Zen Hei", "DejaVu Sans"]
+FALLBACK_FONT = "DejaVu Sans"
+
+
+def has_cjk(text):
+    """是否含中日韩字符（usetex 排不了它们，必须提前拦住）。"""
+    for char in str(text):
+        code = ord(char)
+        if (0x2E80 <= code <= 0x9FFF or 0x3040 <= code <= 0x30FF
+                or 0xAC00 <= code <= 0xD7AF or 0xF900 <= code <= 0xFAFF
+                or 0xFF00 <= code <= 0xFFEF):
+            return True
+    return False
+
+
+def spec_texts(spec):
+    """递归收集 spec 里所有字符串（用于检查 usetex 能否排得下）。"""
+    found = []
+    stack = [spec]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+    return found
+
+
+def latex_available():
+    """本机是否有可用的 LaTeX 工具链（matplotlib 的 usetex 需要 latex + dvipng）。"""
+    import shutil
+    return bool(shutil.which("latex")) and bool(shutil.which("dvipng"))
+
+
+CJK_FONT_NAMES = tuple(name for name in DEFAULT_FONT_STACK if name != FALLBACK_FONT)
+
+
+def font_has_bold(matplotlib, name):
+    """某字族是否带粗体字重。
+
+    SimHei 这类中文字族常常只有常规体：图里一有 fontweight="bold"（标题就是粗体），
+    matplotlib 就往 stderr 打一行 "findfont: Failed to find font weight bold, now using 400."，
+    而且字重悄悄退回常规体——这条日志不进返回值，调用方看不见。
+    """
+    for entry in matplotlib.font_manager.fontManager.ttflist:
+        if entry.name == name and int(getattr(entry, "weight", 400)) >= 600:
+            return True
+    return False
+
+
+def trim_font_stack(matplotlib, family):
+    """去掉「没有粗体、且同一条链里已经有别的中文字族能顶上」的字族。
+
+    典型场景：默认链里 Microsoft YaHei 与 SimHei 都在，YaHei 有粗体、SimHei 没有，
+    留着 SimHei 只会让每次渲染多一行 findfont 日志，字形覆盖却被 YaHei 完全包住。
+    真正没得选时（链里就这么一个中文字族）不动它——宁可标题退回常规体，
+    也不能让中文变成方框。
+    """
+    if len(family) <= 1:
+        return family
+    try:
+        bold_cjk = set(name for name in family
+                       if name in CJK_FONT_NAMES and font_has_bold(matplotlib, name))
+        if not bold_cjk:
+            return family
+        kept = [name for name in family
+                if name not in CJK_FONT_NAMES or name in bold_cjk or font_has_bold(matplotlib, name)]
+    except Exception:
+        return family
+    return kept or family
+
+
+def resolve_math_options(spec, matplotlib):
+    """把 math_fontset / font_family / font_fallback / latex 归一成 rcParams 需要的值。
+
+    返回 (fontset, family, usetex, notes)；notes 是给调用方看的中文提示。
+    三条原则与工具链其余部分一致：能做的照做、不能做的**说出来**、绝不静默降级。
+    """
+    notes = []
+    fontset = spec.get("math_fontset") or "dejavusans"
+    if fontset not in MATH_FONTSETS:
+        notes.append("math_fontset=%r 不是可用的数学字体集（%s），已按 dejavusans 处理"
+                     % (fontset, "/".join(MATH_FONTSETS)))
+        fontset = "dejavusans"
+
+    requested = spec.get("font_family")
+    if isinstance(requested, str):
+        family = [requested]
+    elif isinstance(requested, list) and requested:
+        family = [str(item) for item in requested]
+    elif requested:
+        notes.append("font_family=%r 不是字符串或数组，已改用默认字体链" % (requested,))
+        family = list(DEFAULT_FONT_STACK)
+    else:
+        family = list(DEFAULT_FONT_STACK)
+    if spec.get("font_fallback", True) and FALLBACK_FONT not in family:
+        family.append(FALLBACK_FONT)
+
+    # 明明没装的字族会让 matplotlib 往 stderr 刷 "findfont" 噪声而不进返回值，
+    # 所以这里先筛掉并如实说一声（dejavu 是 matplotlib 自带字体，永远在）。
+    try:
+        installed = set(matplotlib.font_manager.fontManager.get_font_names())
+    except Exception:
+        installed = set()
+    if installed:
+        missing = [name for name in family if name not in installed]
+        kept = [name for name in family if name in installed]
+        if missing and requested:
+            notes.append("这些字体本机没装，已跳过：%s" % "、".join(missing))
+        family = kept
+    if not family:
+        family = [FALLBACK_FONT]
+        notes.append("字体链里没有一个可用字族，已退回 %s" % FALLBACK_FONT)
+    family = trim_font_stack(matplotlib, family)
+
+    mode = spec.get("latex", False)
+    usetex = False
+    if mode is True or (isinstance(mode, str) and mode.strip().lower() in ("true", "1", "yes", "on")):
+        if not latex_available():
+            raise SpecError(
+                "latex=true 需要本机装好 LaTeX（latex 与 dvipng 两个可执行文件都没找到）。"
+                "没装 TeX 时请去掉 latex（默认 false）：mathtext 已经能排 \\frac、\\sqrt、\\sum、"
+                "\\int、希腊字母与上下标，只是字形与真 LaTeX 略有差异。")
+        usetex = True
+    elif isinstance(mode, str) and mode.strip().lower() == "auto":
+        if latex_available():
+            usetex = True
+        else:
+            notes.append("latex=\"auto\"：本机没有 latex/dvipng，已回退 mathtext 排版"
+                         "（公式照常显示，字形与真 LaTeX 略有差异）")
+    elif mode not in (False, None, 0):
+        notes.append("latex=%r 只接受 true / false / \"auto\"，已按 false 处理" % (mode,))
+
+    if usetex:
+        chinese = [text for text in spec_texts(spec) if has_cjk(text)]
+        if chinese:
+            raise SpecError(
+                "latex=true（真 LaTeX）排不了中文字符（spec 里出现了 %r）。"
+                "把中文挪到不参与排版的字段、或者去掉 latex 改用 mathtext——"
+                "mathtext 可以在公式外面写中文，例如 \"$\\\\sigma_1$（最大主应力）\"。" % (chinese[0][:24],))
+    return fontset, family, usetex, notes
+
+
+# --------------------------------------------------------------------------
 # matplotlib 后端
 # --------------------------------------------------------------------------
 def render_matplotlib(spec, out, width, height, scale):
@@ -436,9 +613,14 @@ def render_matplotlib(spec, out, width, height, scale):
     from matplotlib import rcParams
     from matplotlib import ticker as mticker
 
-    rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
+    math_fontset, font_family, usetex, math_notes = resolve_math_options(spec, matplotlib)
+    # 注意：rcParams 是进程级全局状态，每次渲染都必须显式重设，
+    # 否则上一次 usetex=True 的调用会把下一次带中文的图整张搞崩。
+    rcParams["font.family"] = font_family
+    rcParams["font.sans-serif"] = font_family
     rcParams["axes.unicode_minus"] = False   # 负号不画成方框
-    rcParams["mathtext.fontset"] = "dejavusans"
+    rcParams["mathtext.fontset"] = math_fontset
+    rcParams["text.usetex"] = bool(usetex)
     rcParams["figure.autolayout"] = False
 
     panels = spec.get("axes") or [{"slot": [0, 0]}]
@@ -852,7 +1034,7 @@ def render_matplotlib(spec, out, width, height, scale):
                 transparent=bool(spec.get("transparent")), bbox_inches="tight")
     plt.close(fig)
     return {"backend": "matplotlib", "unsupported": unsupported, "kinds": sorted(set(used)),
-            "panels": len(panels)}
+            "panels": len(panels), "warnings": list(math_notes)}
 
 
 # --------------------------------------------------------------------------
@@ -1496,7 +1678,13 @@ def render(spec):
         summary["presets"] = presets_used
     if info.get("unsupported"):
         summary["unsupported"] = info["unsupported"]
-    warnings = list(warnings) + list(preset_warnings)
+    warnings = list(warnings) + list(preset_warnings) + list(info.get("warnings") or [])
+    if info["backend"] == "pillow":
+        ignored = [key for key in ("latex", "math_fontset", "font_family", "font_fallback")
+                   if spec.get(key) is not None]
+        if ignored:
+            warnings.append("Pillow 后端不做数学排版，这些设置被忽略：%s"
+                            "（要排公式请用 matplotlib 后端）" % "、".join(ignored))
     if warnings:
         summary["warnings"] = warnings
     # 画布异常放大通常意味着有元素被画到坐标范围外（例如标注偏移用错单位）

@@ -36,7 +36,7 @@ FIGURE = os.path.join(SCRIPTS, "figure.py")
 # 用例里以这些键开头的字段是"期望"，不写进 spec
 CASE_KEYS = ("expect_error", "error_contains", "expect_presets", "expect_kinds",
              "expect_unsupported", "expect_supported", "expect_no_unsupported",
-             "check_circle", "measure_color")
+             "check_circle", "measure_color", "expect_warning", "forbid_warnings")
 
 NEW_KINDS = ["hist", "stem", "barh", "stacked_bar", "pie", "box", "table", "graph"]
 
@@ -270,7 +270,58 @@ def cases(backend):
         "expect_kinds": ["parametric"], "expect_no_unsupported": True,
     }
 
-    # ---------------- 错误路径（必须是可读中文 JSON 错误） ----------------
+    # ---------------- 数学排版：mathtext / 字体集 / 字体回退 / 真 LaTeX ----------------
+    specs["math_mathtext_title"] = {
+        "title": "$R=\\limsup_{n\\to\\infty}|a_n|^{-1/n}$ 的收敛半径（中文写在公式外面）",
+        "axes": [{"xlabel": "$x$", "ylabel": "$\\sigma_1$ / MPa", "legend": True, "series": [
+            {"kind": "function", "expr": "sin(x)/x", "xrange": [-10, 10],
+             "label": "$\\frac{\\sin x}{x}$"},
+            {"kind": "line", "x": [-10, 10], "y": [0, 0], "style": "--",
+             "label": "$\\sum_{n=1}^{\\infty}$ 零线"},
+        ]}],
+        "expect_kinds": ["function", "line"], "expect_no_unsupported": True,
+    }
+    # 缺字形（⇒ U+21D2、σ₁ U+2081）必须靠字体链兜底渲染出来，而不是画成方框
+    specs["math_glyph_fallback"] = {
+        "title": "推导 ⇒ 结论：σ₁ 与 σ₂",
+        "axes": [{"series": [{"kind": "line", "x": [0, 1], "y": [0, 1],
+                              "label": "σ₁ 曲线"}]}],
+        "expect_kinds": ["line"], "expect_no_unsupported": True,
+        "forbid_warnings": ["缺字形"],
+    }
+    # 论文常见的衬线数学字形
+    specs["math_fontset_cm"] = {
+        "title": "$\\int_0^1 x^2\\,dx = \\frac{1}{3}$",
+        "math_fontset": "cm",
+        "axes": [{"series": [{"kind": "function", "expr": "x^2", "xrange": [0, 1]}]}],
+        "expect_kinds": ["function"], "expect_no_unsupported": True,
+    }
+    specs["math_fontset_unknown"] = {
+        "title": "未知字体集要如实说明",
+        "math_fontset": "comic",
+        "axes": [{"series": [{"kind": "line", "x": [0, 1], "y": [0, 1]}]}],
+        "expect_kinds": ["line"],
+        "expect_warning": "Pillow 后端不做数学排版" if pillow else "不是可用的数学字体集",
+    }
+    specs["math_font_family_missing"] = {
+        "title": "没装的字族要被跳过",
+        "font_family": ["NoSuchFont", "Microsoft YaHei"],
+        "axes": [{"series": [{"kind": "line", "x": [0, 1], "y": [0, 1]}]}],
+        "expect_kinds": ["line"],
+        "expect_warning": "Pillow 后端不做数学排版" if pillow else "本机没装",
+    }
+    # 没装 LaTeX 时 latex=true 必须明确拒绝，而不是静默当 mathtext 用
+    specs["math_latex_unavailable"] = {
+        "title": "真 LaTeX 需要本机装 TeX",
+        "latex": True,
+        "axes": [{"series": [{"kind": "line", "x": [0, 1], "y": [0, 1]}]}],
+        "expect_error": not pillow, "error_contains": "LaTeX",
+        "expect_warning": "Pillow 后端不做数学排版" if pillow else None,
+    }
+    if pillow:
+        specs["math_latex_unavailable"].pop("expect_error")
+        specs["math_latex_unavailable"].pop("error_contains")
+
     specs["bad_preset_unknown"] = {
         "preset": "bending_moment", "segments": [{"x0": 0, "x1": 1, "value": 1}],
         "expect_error": True, "error_contains": "preset",
@@ -408,6 +459,13 @@ def run_case(python, name, spec, out_dir, backend):
     for warning in payload.get("warnings") or []:
         if "异常放大" in warning:
             problems.append("出现画布异常放大告警：%s" % warning)
+    warnings = payload.get("warnings") or []
+    for needle in [checks["expect_warning"]] if checks.get("expect_warning") else []:
+        if not any(needle in item for item in warnings):
+            problems.append("warnings 里缺少 %r（实际 %s）" % (needle, warnings))
+    for needle in checks.get("forbid_warnings") or []:
+        if any(needle in item for item in warnings):
+            problems.append("warnings 里不该出现 %r（实际 %s）" % (needle, warnings))
 
     ratio_text = None
     color = checks.get("check_circle") or checks.get("measure_color")
