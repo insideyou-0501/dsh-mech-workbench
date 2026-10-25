@@ -37,10 +37,29 @@ python test\run_all.py      # 或 node test\selftest.mjs
 ### 第 1 步：改 `package.json` 的版本号
 
 ```powershell
-(Get-Content package.json -Raw -Encoding UTF8) -replace '"version": "[^"]+"', '"version": "0.3.0"' | Set-Content package.json -Encoding UTF8 -NoNewline
+$path = 'package.json'
+$text = [System.IO.File]::ReadAllText($path) -replace '"version": "[^"]+"', '"version": "0.3.0"'
+[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding $false))
 ```
 
 也可以手动改，只要 `"version"` 变成 `"0.3.0"`。
+
+> **不要用 `Set-Content -Encoding UTF8`**：Windows PowerShell 5.1 的 `UTF8` 是
+> **UTF-8 with BOM**。`package.json` 一带 BOM，DSH 的安装校验就会
+> `JSON.parse` 失败——`installation rejected: Cannot validate installed package …
+> Unexpected token '\uFEFF'`——然后把 `package.json` / `pnpm-lock.yaml` / `node_modules`
+> 一起回滚，而 `pnpm add` 明明已经成功，看起来像"装上了但没装上"。
+> PowerShell 7 的 `utf8` 不带 BOM，但同一个脚本在 5.1 下会写出 BOM，
+> 所以这里显式 `UTF8Encoding $false`，两个版本都安全。
+
+改完顺手自检一次（跨 PowerShell 5.1 / 7 都可用）：
+
+```powershell
+$head = [System.IO.File]::ReadAllBytes('package.json')[0..2]
+if ($head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+  throw 'package.json 带 UTF-8 BOM，DSH 会拒绝安装'
+}
+```
 
 ### 第 2 步：改 `CHANGELOG.md`
 
