@@ -76,8 +76,29 @@ function stamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '')
 }
 
-function workspaceOf(args) {
-  return resolve(args?.workspace ?? process.cwd())
+/**
+ * 会话工作目录。
+ *
+ * Desktop 里进程 cwd 是空的 launch-root（不是会话工作目录），所以不能拿
+ * process.cwd() 当工作区用——否则相对的 out 会写到应用数据目录里，事后找不到。
+ * Session 的当前目录由宿主 workingDirectory 服务持有，能读到就优先用它；
+ * 读不到（独立自测、没有 agent 的调用）才退回原来的 process.cwd()。
+ */
+function sessionDirectory(ctx, exec) {
+  const session = exec?.agent?.session
+  if (!session) return null
+  try {
+    const service = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : ctx?.workingDirectory
+    const directory = service?.get?.(session)
+    return typeof directory === 'string' && directory.length ? directory : null
+  } catch {
+    return null
+  }
+}
+
+function workspaceOf(args, exec, ctx) {
+  if (args?.workspace) return resolve(args.workspace)
+  return resolve(sessionDirectory(ctx, exec) ?? process.cwd())
 }
 
 /** 把极值对象拼成一句人能读的话。 */
@@ -325,12 +346,12 @@ function registerTools(ctx) {
     timeoutMs: 300000,
     output: { schema: { type: 'json' }, render: (_args, value) => contentFrom(value, value.summary) },
     async execute(args, exec) {
-      const workspace = workspaceOf(args)
-      const outDir = args.out_dir ? resolve(args.out_dir) : join(workspace, 'mech-images')
+      const workspace = workspaceOf(args, exec, ctx)
+      const outDir = args.out_dir ? resolve(workspace, args.out_dir) : join(workspace, 'mech-images')
       const base = basenameNoExt(args.image)
       const processed = join(outDir, `${base}-processed.png`)
       const preprocessSpec = {
-        src: resolve(args.image),
+        src: resolve(workspace, args.image),
         out: processed,
         ops: args.ops ?? [{ op: 'auto_orient' }, { op: 'autocontrast', cutoff: 1.0 }],
         max_side: 2000,
@@ -428,11 +449,11 @@ function registerTools(ctx) {
     },
     timeoutMs: 180000,
     output: { schema: { type: 'json' }, render: (_args, value) => contentFrom(value, value.summary) },
-    async execute(args) {
-      const workspace = workspaceOf(args)
-      const out = args.out ? resolve(args.out) : join(workspace, 'mech-images', `compare-${stamp()}.png`)
+    async execute(args, exec) {
+      const workspace = workspaceOf(args, exec, ctx)
+      const out = args.out ? resolve(workspace, args.out) : join(workspace, 'mech-images', `compare-${stamp()}.png`)
       const spec = {
-        original: resolve(args.original),
+        original: resolve(workspace, args.original),
         transcription: args.transcription,
         out,
       }
@@ -530,8 +551,8 @@ function registerTools(ctx) {
     },
     timeoutMs: 240000,
     output: { schema: { type: 'json' }, render: (_args, value) => contentFrom(value, value.summary) },
-    async execute(args) {
-      const workspace = workspaceOf(args)
+    async execute(args, exec) {
+      const workspace = workspaceOf(args, exec, ctx)
       // 深拷贝：translateDiagramKeys 会把 kind 改写为 preset，不能side-effect 改到调用方传进来的对象
       const spec = translateDiagramKeys(JSON.parse(JSON.stringify(args.spec ?? {})))
       const kinds = diagramKinds(spec)
@@ -604,8 +625,8 @@ function registerTools(ctx) {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: value.summary }],
     },
-    async execute(args) {
-      const options = { workspace: workspaceOf(args) }
+    async execute(args, exec) {
+      const options = { workspace: workspaceOf(args, exec, ctx) }
       const action = String(args.action ?? '').toLowerCase()
       if (action === 'save') {
         const saved = await saveCard(args.card ?? {}, options)
@@ -663,8 +684,8 @@ function registerTools(ctx) {
     },
     timeoutMs: 300000,
     output: { schema: { type: 'json' }, render: (_args, value) => contentFrom(value, value.summary) },
-    async execute(args) {
-      const workspace = workspaceOf(args)
+    async execute(args, exec) {
+      const workspace = workspaceOf(args, exec, ctx)
       const spec = { ...(args.spec ?? {}) }
       if (!spec.out) {
         spec.out = args.out
@@ -750,8 +771,8 @@ function registerTools(ctx) {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: value.summary }],
     },
-    async execute(args) {
-      const workspace = workspaceOf(args)
+    async execute(args, exec) {
+      const workspace = workspaceOf(args, exec, ctx)
       const path = resolve(workspace, args.image)
       if (!existsSync(path)) throw new Error(`图片不存在：${path}`)
       const review = await visionReview(path, { provider: args.provider, prompt: args.prompt })
@@ -806,8 +827,8 @@ function registerTools(ctx) {
     },
     timeoutMs: 180000,
     output: { schema: { type: 'json' }, render: (_args, value) => contentFrom(value, value.summary) },
-    async execute(args) {
-      const workspace = workspaceOf(args)
+    async execute(args, exec) {
+      const workspace = workspaceOf(args, exec, ctx)
       if (!args.src || typeof args.src !== 'string') {
         throw new Error('viz_annotate 需要 src（原图路径，绝对路径或相对 workspace）')
       }
