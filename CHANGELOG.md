@@ -29,6 +29,13 @@
 
 ### 修复
 
+- **装不上：安装被拒并自动回滚**：`package.json` 存成了 UTF-8 with BOM（开头 `EF BB BF`），
+  而 DSH 校验安装副本时用 `JSON.parse`，它不接受 BOM，于是
+  `installation rejected: Cannot validate installed package … Unexpected token '\uFEFF'`，
+  并把 `package.json` / `pnpm-lock.yaml` / `node_modules` 一起回滚——而 `pnpm add` 本身
+  早就成功了，看起来像"依赖装好了但插件没装上"。根因是 `RELEASING.md` 第 1 步那条
+  `Set-Content -Encoding UTF8`：Windows PowerShell 5.1 的 `UTF8` 是**带 BOM** 的。
+  现在 `package.json` 与 23 个测试夹具的 BOM 全部去掉，发版命令也换成显式不写 BOM 的写法。
 - **缺字形（豆腐块）的真正根因**：原来只设 `rcParams["font.sans-serif"]`，而 `font.family`
   仍是 `["sans-serif"]`；matplotlib ≥3.6 的逐字形回退要求 `font.family` 给出一串具体字族，
   因此 `⇒`(U+21D2)、`σ₁`(U+2081) 这类字符在中文标题里会画成空心方框。
@@ -50,6 +57,18 @@
 - **Pillow 后端写矢量格式给出人话错误**：原来抛 `ValueError: unknown file extension: .svg`，
   现在是「Pillow 后端只能输出位图…矢量输出需要 matplotlib」。
 - **Pillow 后端**：数学排版相关设置被忽略时如实说明，不再无声无息。
+- **插件装好却永不激活**：`index.js` 里 `@deepseek-ai/dsh-tools` 解析不到时（Desktop
+  安装形态下它不在 profile 的 `node_modules` 里，也不是 npm 包），`defineTool` 退化成一个
+  恒等函数，作者 DSL 被原样交给 `ctx.tools.register`。宿主把收到的东西当**原始 JSON Schema
+  子集**校验，一遇到 `type:'json'`（本仓库 20 处：11 个参数属性、9 个 `output.schema`）就抛
+  `JsonSchemaError: schema.type must be one of …`，整个插件静默不激活，只有一行 warning。
+  现在退化分支换成与宿主等价的编译器：`json` → 仅注解节点、标量保留类型、property 级
+  `required: true` 收集进父节点的 `required` 数组；宿主包能解析到时仍优先用宿主的
+  `defineTool`，行为不变。
+- **自测再也不会漏掉上一条**：`test/selftest.mjs` 的 mock registry 原来只把 definition
+  塞进 Map、什么都不校验，所以恒等退化分支在自测里永远无害。现在它按宿主规则复核
+  `parameters` 与 `output.schema`（`test/host-schema-subset.mjs`，镜像宿主
+  `assertSupportedJsonSchema` 的子集规则），漏编译会直接 FAIL。
 
 ## [0.2.1] - 2026-10-23
 

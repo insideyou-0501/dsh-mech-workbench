@@ -1,1 +1,1 @@
-﻿{"src": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\nope.jpg", "out": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\x.png", "ops": [{"op":"grayscale"}]}
+{"src": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\nope.jpg", "out": "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\x.png", "ops": [{"op":"grayscale"}]}

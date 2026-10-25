@@ -1,4 +1,4 @@
-﻿{
+{
     "original":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\q2_three.png",
     "transcription":  "一页三题（竖长图，验证窄屏上下布局）：\n第 2 题 阶梯轴受扭矩 $T=300\\,\\mathrm{N\\cdot m}$，直径 $d=40\\,\\mathrm{mm}$，许用切应力 $[\\tau]=60\\,\\mathrm{MPa}$，校核轴的扭转强度。\n注意手写体 $\\tau$ 与 $\\gamma$ 易混。",
     "out":  "C:\\Users\\丁曹扬\\Documents\\deepseek-harness\\default-workspace\\mech-workbench\\test\\cases\\out\\compare_stacked_mpl.png",
