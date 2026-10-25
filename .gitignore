@@ -25,4 +25,4 @@ secrets/
 .idea/
 .DS_Store
 Thumbs.db
-desktop.ini
+desktop.ini.npmrc
