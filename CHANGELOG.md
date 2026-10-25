@@ -3,7 +3,7 @@
 本文件记录 dsh-mech-workbench 的版本变更。格式遵循 Keep a Changelog，
 版本号遵循语义化版本（SemVer）。
 
-## [未发布]
+## [0.3.0] - 2026-10-25
 
 ### 新增
 
@@ -50,6 +50,11 @@
 - **Pillow 后端写矢量格式给出人话错误**：原来抛 `ValueError: unknown file extension: .svg`，
   现在是「Pillow 后端只能输出位图…矢量输出需要 matplotlib」。
 - **Pillow 后端**：数学排版相关设置被忽略时如实说明，不再无声无息。
+- **相对路径按会话工作目录解析**：Desktop 里进程的 cwd 是空的 launch-root，不是会话
+  工作目录，原来相对的 `out` / `image` 会写到应用数据目录、事后找不到。现在优先取宿主的
+  `workingDirectory` 服务，读不到才退回进程 cwd；`mech_read_problem`、
+  `mech_verify_reading`、`mech_diagram`、`mech_card` 的相对路径都基于它解析，
+  显式 `workspace` 参数仍然最优先。
 
 ## [0.2.1] - 2026-10-23
 
