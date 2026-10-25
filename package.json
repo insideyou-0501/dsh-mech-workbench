@@ -1,7 +1,6 @@
 ﻿{
   "name": "dsh-mech-workbench",
   "version": "0.3.0",
-  "private": true,
   "description": "工科题解工作台：泛用读图（任意学科题图/图表/表格）、回读自检、通用求解（符号+数值）、通用可视化（单一引擎 + 学科预设）与独立视觉校核。",
   "type": "module",
   "main": "index.js",
@@ -21,8 +20,7 @@
     ".pylibs",
     "icon.svg",
     "cordis.patch.yml",
-    "README.md",
-    "HANDOFF.md"
+    "README.md"
   ],
   "keywords": [
     "deepseek-harness",
@@ -35,6 +33,14 @@
     "material-mechanics",
     "symbolic-math"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/insideyou-0501/dsh-mech-workbench.git"
+  },
+  "homepage": "https://github.com/insideyou-0501/dsh-mech-workbench#readme",
+  "bugs": {
+    "url": "https://github.com/insideyou-0501/dsh-mech-workbench/issues"
+  },
   "license": "MIT",
   "dsh": {
     "bundle": {
