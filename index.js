@@ -43,12 +43,83 @@ const SKILL_NAMES = [
  * 宿主包只在真实 Harness 进程里可解析（Desktop 通过 host module fallback 提供）。
  * 在独立自测中退化为恒等函数：定义形状保持一致，参数校验交给脚本。
  */
-let rawDefineTool = (options) => options
+const ANNOTATION_KEYS = ['description', 'title', 'default', 'examples']
+const SCALAR_TYPES = ['string', 'number', 'integer', 'boolean', 'null']
+
+/** 把作者 DSL 的一个值节点编译成宿主可接受的 JSON Schema 子集。 */
+function compileValueSchema(spec, path) {
+  if (spec == null) return {}
+  if (typeof spec !== 'object' || Array.isArray(spec)) {
+    throw new Error(`${path} must be a value schema object`)
+  }
+  const node = {}
+  for (const key of ANNOTATION_KEYS) if (Object.hasOwn(spec, key)) node[key] = spec[key]
+  if (Object.keys(spec).every((key) => ANNOTATION_KEYS.includes(key))) return node
+  const type = spec.type
+  if (type === 'json') return node
+  if (SCALAR_TYPES.includes(type)) {
+    node.type = type
+    if (Object.hasOwn(spec, 'enum')) node.enum = Array.from(spec.enum)
+    if (Object.hasOwn(spec, 'const')) node.const = spec.const
+    return node
+  }
+  if (type === 'array') {
+    node.type = 'array'
+    node.items = Object.hasOwn(spec, 'items') ? compileValueSchema(spec.items, `${path}.items`) : {}
+    return node
+  }
+  if (type === 'object') {
+    if (typeof spec.additionalProperties !== 'boolean') {
+      throw new Error(`${path}.additionalProperties must be explicitly true or false`)
+    }
+    node.type = 'object'
+    node.additionalProperties = spec.additionalProperties
+    if (Object.hasOwn(spec, 'properties')) {
+      const compiled = compilePropertyMap(spec.properties, `${path}.properties`)
+      node.properties = compiled.properties
+      if (compiled.required.length > 0) node.required = compiled.required
+    }
+    return node
+  }
+  throw new Error(`${path}.type must be string/number/integer/boolean/null/array/object/json`)
+}
+
+/** 参数表：property 级 required:true 收集成父节点 required 数组。 */
+function compilePropertyMap(spec, path) {
+  const properties = {}
+  const required = []
+  for (const [key, definition] of Object.entries(spec ?? {})) {
+    properties[key] = compileValueSchema(definition, `${path}.${key}`)
+    if (definition?.required === true) required.push(key)
+  }
+  return { properties, required }
+}
+
+function compileDefinition(options) {
+  if (options == null || typeof options !== 'object') {
+    throw new Error('defineTool expects an options object')
+  }
+  const { properties, required } = compilePropertyMap(options.parameters, 'parameters')
+  const parameters = { type: 'object', properties }
+  if (required.length > 0) parameters.required = required
+  const next = { ...options, parameters }
+  if (options.output == null) delete next.output
+  else next.output = { ...options.output, schema: compileValueSchema(options.output.schema, 'schema') }
+  return next
+}
+
+/**
+ * 宿主包只在真实 Harness 进程里可解析（Desktop 通过 host module fallback 提供）。
+ * 解析不到时用本文件内的等价编译器，而不是恒等函数：`type:'json'` 这种作者专用节点
+ * 必须被编译成「仅注解、无 type」的节点，否则 ctx.tools.register 会以 JsonSchemaError 拒绝
+ * （issue #3：插件静默不激活）。
+ */
+let rawDefineTool = compileDefinition
 try {
   const mod = await import('@deepseek-ai/dsh-tools')
   if (typeof mod.defineTool === 'function') rawDefineTool = mod.defineTool
 } catch {
-  rawDefineTool = (options) => options
+  rawDefineTool = compileDefinition
 }
 
 /**

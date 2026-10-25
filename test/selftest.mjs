@@ -12,6 +12,7 @@ import { mkdir, rm, stat, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { assertHostSchemaSubset } from './host-schema-subset.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = dirname(HERE)
@@ -40,9 +41,21 @@ const mockAttachments = {
     return { attachmentId: `mock-${name}`, mediaType, bytes: data?.byteLength ?? data?.length ?? 0 }
   },
 }
+const schemaViolations = []
 const ctx = {
   tools: {
     register(definition) {
+      // 宿主会对 parameters / output.schema 做原始 JSON Schema 子集校验；
+      // mock registry 若只收集不校验，`defineTool` 的退化分支在自测里永远无害
+      // （issue #3：作者 DSL 原样进注册表 → JsonSchemaError → 插件不激活）。
+      try {
+        assertHostSchemaSubset(definition.parameters, `${definition.name}.parameters`)
+        if (definition.output?.schema !== undefined) {
+          assertHostSchemaSubset(definition.output.schema, `${definition.name}.output.schema`)
+        }
+      } catch (error) {
+        schemaViolations.push({ tool: definition.name, message: error.message })
+      }
       registered.set(definition.name, definition)
     },
   },
@@ -82,6 +95,14 @@ record(
 record('export 形态正确（name/inject/apply）',
   plugin.name === 'dsh-mech-workbench' && Array.isArray(plugin.inject) && typeof plugin.apply === 'function',
   `name=${plugin.name} inject=${JSON.stringify(plugin.inject)}`)
+
+record(
+  `工具定义通过宿主 JSON Schema 子集（${EXPECTED.length} 个 parameters + output.schema）`,
+  schemaViolations.length === 0,
+  schemaViolations.length
+    ? schemaViolations.map((item) => `${item.tool}: ${item.message}`).join(' | ')
+    : '没有越界关键字，也没有残留的作者专用 type:"json"',
+)
 
 record('随包技能提供方被注册', providerCalls.length === 1, `registerProvider 调用 ${providerCalls.length} 次`)
 if (providerCalls.length === 1) {
